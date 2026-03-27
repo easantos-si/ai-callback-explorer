@@ -1,0 +1,58 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai-callback-backend
+    restart: unless-stopped
+    ports:
+      - "3900:3900"
+    environment:
+      - NODE_ENV=production
+      - PORT=3900
+      - CORS_ORIGIN=*
+      - MAX_PAYLOAD_SIZE=50mb
+      - RATE_LIMIT_TTL=60
+      - RATE_LIMIT_MAX=100
+      - SESSION_TTL_HOURS=72
+      - LOG_LEVEL=info
+      - TRUST_PROXY=true
+    networks:
+      - ai-callback-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "try{require('http').get('http://localhost:3900/api/health',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))}catch(e){process.exit(1)}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_BASE_URL=
+        - VITE_WS_PATH=/socket.io
+    container_name: ai-callback-frontend
+    restart: unless-stopped
+    ports:
+      - "3901:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - ai-callback-network
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+
+networks:
+  ai-callback-network:
+    driver: bridge
