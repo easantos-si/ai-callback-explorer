@@ -14,6 +14,7 @@ import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { SessionService } from '../session/session.service';
 import { AuthService } from '../auth/auth.service';
 import { redactSessionId } from '../common/util/redact';
+import { getSocketClientIp } from '../common/util/client-ip';
 import { JoinSessionDto } from './dto/join-session.dto';
 import type { CallbackEntry } from './callback.service';
 import {
@@ -65,7 +66,10 @@ export class CallbackGateway
 
   private readonly logger = new Logger(CallbackGateway.name);
   private readonly clientSessions = new Map<string, string>();
-  private readonly clientFlood = new Map<string, FloodTracker>();
+  // Flood tracker is keyed by IP, NOT by socket.id, so an attacker can't
+  // reset the counter by reconnecting between bursts. Entries are GC'd
+  // when the IP's connection count drops to zero.
+  private readonly floodByIp = new Map<string, FloodTracker>();
   private readonly connectionsByIp = new Map<string, number>();
   private readonly clientIps = new Map<string, string>();
 
@@ -117,13 +121,18 @@ export class CallbackGateway
       client.leave(`session:${sessionId}`);
       this.clientSessions.delete(client.id);
     }
-    this.clientFlood.delete(client.id);
 
     const ip = this.clientIps.get(client.id);
     if (ip) {
       const current = this.connectionsByIp.get(ip) ?? 0;
-      if (current <= 1) this.connectionsByIp.delete(ip);
-      else this.connectionsByIp.set(ip, current - 1);
+      if (current <= 1) {
+        this.connectionsByIp.delete(ip);
+        // Last connection from this IP gone — GC its flood tracker so
+        // the Map doesn't leak entries over the process lifetime.
+        this.floodByIp.delete(ip);
+      } else {
+        this.connectionsByIp.set(ip, current - 1);
+      }
       this.clientIps.delete(client.id);
     }
 
@@ -146,7 +155,7 @@ export class CallbackGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: JoinSessionDto,
   ): void {
-    if (!this.allowEvent(client.id)) {
+    if (!this.allowEventForClient(client)) {
       client.emit('error', { message: 'Rate limit exceeded' });
       return;
     }
@@ -193,7 +202,7 @@ export class CallbackGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: JoinSessionDto,
   ): void {
-    if (!this.allowEvent(client.id)) return;
+    if (!this.allowEventForClient(client)) return;
 
     const joined = this.clientSessions.get(client.id);
     if (joined !== payload.sessionId) return; // ignore mismatched leaves
@@ -212,23 +221,35 @@ export class CallbackGateway
     );
   }
 
-  private allowEvent(clientId: string): boolean {
+  private allowEventForClient(client: Socket): boolean {
+    // Lookup IP via the table populated in afterInit() — it represents
+    // the IP at handshake time and survives any header tampering on the
+    // emit message. Falls back to the live socket address if the table
+    // is missing the entry (defensive — should never happen).
+    const ip =
+      this.clientIps.get(client.id) ?? this.resolveSocketIp(client);
+
     const now = Date.now();
-    let tracker = this.clientFlood.get(clientId);
+    let tracker = this.floodByIp.get(ip);
     if (!tracker || now - tracker.windowStart > JOIN_RATE_WINDOW_MS) {
       tracker = { windowStart: now, count: 0 };
-      this.clientFlood.set(clientId, tracker);
+      this.floodByIp.set(ip, tracker);
     }
     tracker.count++;
     return tracker.count <= JOIN_RATE_MAX;
   }
 
   private resolveSocketIp(socket: Socket): string {
-    const headers = socket.handshake.headers;
-    const cf = headers['cf-connecting-ip'];
-    if (typeof cf === 'string' && cf) return cf;
-    const xri = headers['x-real-ip'];
-    if (typeof xri === 'string' && xri) return xri;
-    return socket.handshake.address || 'unknown';
+    // Use the trust-aware resolver shared with Express, so the per-IP
+    // counters in this gateway match what auth/captcha lockout sees.
+    // Headers like CF-Connecting-IP are only honoured when the immediate
+    // peer is in TRUST_PROXY — same boundary nginx enforces upstream.
+    return getSocketClientIp({
+      headers: socket.handshake.headers as Record<
+        string,
+        string | string[] | undefined
+      >,
+      address: socket.handshake.address,
+    });
   }
 }

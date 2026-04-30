@@ -24,13 +24,15 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_AUDIT=false
 
 COPY frontend/package.json ./
-COPY frontend/package-lock.json* ./
+COPY frontend/package-lock.json ./
 
-# Sync the lockfile with package.json, then install deterministically.
-# Vite/Vue need install scripts to run (esbuild, etc.), so --ignore-scripts
-# is intentionally NOT used here.
-RUN npm install --package-lock-only \
- && npm ci
+# Strict reproducible install. We ignore postinstall scripts on the whole
+# transitive tree to contain a compromised dep, then run only the install
+# scripts that legitimately need to fetch native binaries (esbuild).
+# `npm rebuild esbuild` re-runs that single package's install script.
+# Add other native modules' rebuild commands here if introduced later.
+RUN npm ci --ignore-scripts && \
+    npm rebuild esbuild
 
 COPY frontend/tsconfig.json frontend/tsconfig.node.json frontend/vite.config.ts frontend/env.d.ts ./
 COPY frontend/index.html ./
@@ -51,12 +53,35 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
-RUN chown -R nginx:nginx /usr/share/nginx/html && \
+# Drop the master process from root → nginx user. The default alpine
+# image keeps master as root and only drops workers; running both as
+# nginx narrows the blast radius of any future nginx CVE. Listening on
+# 8080 (>1024) avoids needing CAP_NET_BIND_SERVICE; docker-compose maps
+# host port 3901 → container 8080.
+#
+# We also drop the `user nginx;` directive from /etc/nginx/nginx.conf
+# because it triggers a setuid attempt at startup that fails when the
+# master is already nginx (and even logs a confusing "ignored" warning
+# without our cap_drop). The remaining workers inherit the master's uid.
+#
+# The official entrypoint helpers in /docker-entrypoint.d/ run sed -i on
+# /etc/nginx/nginx.conf to tune worker_processes and envsubst on
+# templates — both fail under read_only: true in compose. Our config is
+# fully baked at build time; remove the helpers entirely so the image's
+# /docker-entrypoint.sh exits early without trying to mutate config.
+RUN sed -i '/^user /d' /etc/nginx/nginx.conf && \
+    rm -rf /docker-entrypoint.d && \
+    chown -R nginx:nginx /usr/share/nginx/html && \
     chown -R nginx:nginx /var/cache/nginx && \
     chown -R nginx:nginx /var/log/nginx && \
     touch /var/run/nginx.pid && \
     chown nginx:nginx /var/run/nginx.pid
 
-EXPOSE 80
+USER nginx
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
+    CMD wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

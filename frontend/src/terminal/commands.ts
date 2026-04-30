@@ -19,7 +19,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { useSuperModeStore } from '@/stores/superMode';
 import { AVAILABLE_LOCALES, type LocaleCode } from '@/i18n';
-import { TUI_THEMES, getTuiTheme } from './themes';
+import { TUI_THEMES, getTuiTheme, DEFAULT_TUI_THEME_ID } from './themes';
 import { THEMES } from '@/themes';
 import { intlLocaleFor } from '@/i18n';
 import { formatDate, formatDateTimeLong } from '@/utils/formatters';
@@ -1148,7 +1148,7 @@ export function fetchBannerNode(t: ExecCtx['t'], locale: string): RichNode {
   const localeOpt = AVAILABLE_LOCALES.find((l) => l.code === locale);
   const localeLabel = localeOpt ? `${localeOpt.flag} ${localeOpt.label}` : locale;
   const guiTheme = THEMES.find((th) => th.id === settings.themeId);
-  const tuiTheme = getTuiTheme(settings.tuiThemeId || TUI_THEMES[0].id);
+  const tuiTheme = getTuiTheme(settings.tuiThemeId || DEFAULT_TUI_THEME_ID);
 
   const ua = navigator.userAgent;
   // A tiny bit of UA parsing — enough to label the host browser without

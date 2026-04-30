@@ -12,6 +12,9 @@ node_modules/
 dist/
 build/
 
+# build.sh helper cache (npm cache bind-mounted into the helper container)
+.build-cache/
+
 # Environment files
 .env
 .env.local

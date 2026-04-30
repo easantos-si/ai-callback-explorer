@@ -40,7 +40,7 @@ import { useI18n } from 'vue-i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { AVAILABLE_LOCALES, type LocaleCode } from '@/i18n';
 import { THEMES } from '@/themes';
-import { TUI_THEMES } from './themes';
+import { TUI_THEMES, DEFAULT_TUI_THEME_ID } from './themes';
 
 const props = defineProps<{
   mode: 'language' | 'theme';
@@ -108,7 +108,7 @@ const groups = computed<PickerGroup[]>(() => {
       items: TUI_THEMES.map((th) => ({
         label: t(`tuiThemes.${th.i18nKey}`) as string,
         note: th.id,
-        current: th.id === (settings.tuiThemeId || TUI_THEMES[0].id),
+        current: th.id === (settings.tuiThemeId || DEFAULT_TUI_THEME_ID),
         apply: () => {
           settings.setTuiTheme(th.id);
           message.value = t('terminal.picker.applied', {

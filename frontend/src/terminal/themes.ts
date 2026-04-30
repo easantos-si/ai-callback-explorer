@@ -17,7 +17,7 @@ export interface TuiPalette {
   selBg: string;
 }
 
-export const DEFAULT_TUI_THEME_ID = 'phosphor';
+export const DEFAULT_TUI_THEME_ID = 'nord-term';
 
 export const TUI_THEMES: TuiPalette[] = [
   {
@@ -93,7 +93,11 @@ export const TUI_THEMES: TuiPalette[] = [
 ];
 
 export function getTuiTheme(id: string): TuiPalette {
-  return TUI_THEMES.find((p) => p.id === id) || TUI_THEMES[0];
+  return (
+    TUI_THEMES.find((p) => p.id === id) ||
+    TUI_THEMES.find((p) => p.id === DEFAULT_TUI_THEME_ID) ||
+    TUI_THEMES[0]
+  );
 }
 
 export function applyTuiTheme(p: TuiPalette): void {

@@ -30,7 +30,7 @@ export interface Theme {
   colors: ThemeColors;
 }
 
-export const DEFAULT_THEME_ID = 'midnight';
+export const DEFAULT_THEME_ID = 'porcelain';
 
 export const THEMES: Theme[] = [
   {

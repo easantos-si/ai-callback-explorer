@@ -43,7 +43,11 @@ async function bootstrap(): Promise<void> {
           'style-src': ["'self'", "'unsafe-inline'"],
           'img-src': ["'self'", 'data:'],
           'font-src': ["'self'", 'data:'],
-          'connect-src': ["'self'", 'wss:', 'https:'],
+          // Same-origin only. The SPA only fetches /api on its own origin
+          // and the WebSocket connects to the same origin via wss; both
+          // are covered by 'self'. Narrowing this defeats data-exfiltration
+          // through any future XSS.
+          'connect-src': ["'self'"],
           'frame-ancestors': ["'none'"],
           'base-uri': ["'none'"],
           'form-action': ["'none'"],

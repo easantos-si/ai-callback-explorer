@@ -11,9 +11,11 @@ services:
     # impossible.
     expose:
       - "3900"
-    # All runtime configuration is baked into the image from the project
-    # root .env (see backend/Dockerfile + node --env-file=.env). Changes to
-    # .env require `docker-compose build` to take effect.
+    # Secrets injected at runtime — never baked into the image. Editing
+    # .env + `docker-compose up -d` (no rebuild) is enough to rotate any
+    # value. The interpolation block below also reads .env at compose
+    # parse time for the frontend build args.
+    env_file: .env
     networks:
       - ai-callback-network
     # SQLite store for sessions. Lives outside the image so rebuilds
@@ -21,17 +23,35 @@ services:
     # startup by SessionService.onModuleInit.
     volumes:
       - ai-callback-data:/app/data
+    # ---- Hardening (L1) -----------------------------------------------------
+    # The backend runs as the unprivileged `nestjs` user and never needs
+    # to call setuid/setgid/chown — drop every Linux capability and lock
+    # the root FS read-only. /app/data is the SQLite home (volume above)
+    # and /tmp is a small tmpfs for ephemeral writes.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    # mode=1777 makes the tmpfs world-writable+sticky (same as a normal
+    # /tmp). Without it, some docker versions default tmpfs to 0755
+    # root:root and the unprivileged container user (nestjs uid 1001)
+    # gets EACCES on any write. The mount is per-container and discarded
+    # on stop, so the broad permission has zero persistent impact.
+    tmpfs:
+      - /tmp:mode=1777
+    pids_limit: 200
     healthcheck:
       test: ["CMD", "node", "-e", "try{require('http').get('http://localhost:3900/api/health',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))}catch(e){process.exit(1)}"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.5"
+    # `mem_limit` / `cpus` work on plain `docker compose up` (without
+    # swarm). The legacy `deploy.resources.limits` block was a no-op
+    # outside swarm and has been removed.
+    mem_limit: 256m
+    cpus: 0.5
 
   frontend:
     build:
@@ -49,18 +69,43 @@ services:
     # (cloudflared) and any external nginx HTTPS proxy connect via
     # 127.0.0.1:3901. There is no public exposure — direct ingress from
     # outside the host is blocked by the OS, not by the firewall config.
+    # Container listens on 8080 (USER nginx, no NET_BIND_SERVICE needed).
     ports:
-      - "127.0.0.1:3901:80"
+      - "127.0.0.1:3901:8080"
     depends_on:
       backend:
         condition: service_healthy
     networks:
       - ai-callback-network
-    deploy:
-      resources:
-        limits:
-          memory: 64M
-          cpus: "0.25"
+    # ---- Hardening (L1) -----------------------------------------------------
+    # nginx master also runs as the unprivileged `nginx` user (see
+    # frontend/Dockerfile USER directive). Drop every capability — port
+    # 8080 doesn't need NET_BIND_SERVICE, and we never chown/chmod at
+    # runtime. Read-only root FS forces every write into the tmpfs list.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    # mode=1777 is required so the unprivileged `nginx` user (uid 101 in
+    # the alpine image) can mkdir its temp / pid / cache subdirs at
+    # startup. Some docker versions default tmpfs to 0755 root:root,
+    # which would EACCES every write attempt and trap nginx in a restart
+    # loop. The tmpfs is per-container and discarded on stop.
+    #
+    # /var/log/nginx is intentionally NOT tmpfs — the alpine image ships
+    # access.log and error.log as symlinks to /dev/stdout and /dev/stderr,
+    # and tmpfs would replace those symlinks with empty files (so
+    # `docker logs` would go silent). Writing through the symlinks works
+    # under read_only because /dev/stdout is an fd-redirect, not a real
+    # filesystem write.
+    tmpfs:
+      - /var/cache/nginx:mode=1777
+      - /var/run:mode=1777
+      - /tmp:mode=1777
+    pids_limit: 100
+    mem_limit: 64m
+    cpus: 0.25
 
 networks:
   ai-callback-network:

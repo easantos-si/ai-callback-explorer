@@ -16,13 +16,12 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_AUDIT=false
 
 COPY backend/package.json ./
-COPY backend/package-lock.json* ./
+COPY backend/package-lock.json ./
 
-# Sync the lockfile with package.json (no install, no scripts), then
-# install deterministically with `npm ci`. This makes the build robust to
-# a stale package-lock.json without losing reproducibility.
-RUN npm install --package-lock-only --ignore-scripts \
- && npm ci --ignore-scripts
+# Strict reproducible install: lockfile MUST match package.json. If they
+# diverge, npm ci fails — surfacing the drift immediately instead of
+# silently regenerating the lockfile inside the image.
+RUN npm ci --ignore-scripts
 
 COPY backend/tsconfig.json backend/tsconfig.build.json backend/nest-cli.json ./
 COPY backend/src/ ./src/
@@ -47,7 +46,7 @@ RUN apk add --no-cache dumb-init && \
 WORKDIR /app
 
 COPY backend/package.json ./
-COPY backend/package-lock.json* ./
+COPY backend/package-lock.json ./
 
 # better-sqlite3 ships prebuilt binaries via node-gyp-build. Most
 # alpine-x64 / arm64 hosts pick up the prebuild without any C++
@@ -55,29 +54,35 @@ COPY backend/package-lock.json* ./
 # install survives even on platforms without a matching prebuild
 # (e.g. fresh CPU arches). The build deps are uninstalled in the same
 # RUN layer so they don't bloat the final image.
+#
+# We pass --ignore-scripts to neutralise postinstall scripts in the
+# entire transitive tree (supply-chain defence, see 2026 worm campaigns)
+# and run better-sqlite3's install explicitly afterwards via npm rebuild,
+# since it legitimately needs to resolve a prebuilt binary (or compile
+# from C++ when no prebuild matches the host arch).
 RUN apk add --no-cache --virtual .build-deps python3 make g++ && \
-    npm install --package-lock-only --ignore-scripts && \
-    npm ci --omit=dev && \
+    npm ci --omit=dev --ignore-scripts && \
+    npm rebuild better-sqlite3 && \
     npm cache clean --force && \
     apk del .build-deps
 
 COPY --from=builder /app/dist ./dist
 
-# Bake the project-root `.env` into the image. Node loads it at startup via
-# `--env-file=.env`. Changing the file on disk has no effect on a running
-# container — `docker-compose build` is required to pick up changes.
-COPY .env ./.env
+# Secrets are NOT baked into the image. They flow in via env_file: in
+# docker-compose.yml (or runtime `-e` / `--env-file` for plain docker run).
+# This keeps the image stateless and re-distributable without leaking
+# JWT_SECRET / TOTP_SECRET / ADMIN_TOKEN / MASTER_PASSWORD via image pulls,
+# layer history, or registry mirrors.
 
 # /app/data is the SQLite home (controlled by SQLITE_PATH). Created
 # here so a Docker volume mount inherits the right ownership without
 # the operator having to chown anything by hand.
 RUN mkdir -p /app/data && \
-    chown -R nestjs:nodejs /app && \
-    chmod 0440 /app/.env
+    chown -R nestjs:nodejs /app
 
 USER nestjs
 
 EXPOSE 3900
 
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "--env-file=.env", "dist/main.js"]
+CMD ["node", "dist/main.js"]

@@ -8,7 +8,6 @@ const REQUIRED_PRESSES = 12;
 const PRESS_WINDOW_MS = 5_000;
 
 const KEY_UNLOCKED = 'super.unlocked';
-const KEY_TOKEN = 'super.adminToken';
 
 export const useSuperModeStore = defineStore('superMode', () => {
   const db = useIndexedDB();
@@ -34,16 +33,16 @@ export const useSuperModeStore = defineStore('superMode', () => {
       // can never authenticate. Re-enabling filtering re-arms the gate.
       if (!auth.originFilteringEnabled) {
         await db.deleteSetting(KEY_UNLOCKED).catch(() => {});
-        await db.deleteSetting(KEY_TOKEN).catch(() => {});
         unlocked.value = false;
         adminToken.value = '';
         hydrated.value = true;
         return;
       }
       const u = await db.getSetting<boolean>(KEY_UNLOCKED);
-      const t = await db.getSetting<string>(KEY_TOKEN);
       if (u) unlocked.value = true;
-      if (t) adminToken.value = t;
+      // adminToken is intentionally NOT hydrated from IndexedDB — it
+      // lives only in memory, so a page reload (or a different browser
+      // tab on a shared machine) requires the operator to re-enter it.
     } catch (e) {
       console.warn('Failed to hydrate super mode:', e);
     } finally {
@@ -83,8 +82,10 @@ export const useSuperModeStore = defineStore('superMode', () => {
   }
 
   function setAdminToken(token: string): void {
+    // In-memory only. Persisting the admin token to IndexedDB would let
+    // any later XSS, browser extension, or shared-machine snoop read it
+    // long after the operator left. Page reload re-prompts.
     adminToken.value = token;
-    db.setSetting(KEY_TOKEN, token).catch(() => {});
   }
 
   function lock(): void {
@@ -92,7 +93,6 @@ export const useSuperModeStore = defineStore('superMode', () => {
     adminToken.value = '';
     count.value = 0;
     db.deleteSetting(KEY_UNLOCKED).catch(() => {});
-    db.deleteSetting(KEY_TOKEN).catch(() => {});
   }
 
   return {

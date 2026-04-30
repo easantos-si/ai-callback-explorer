@@ -79,7 +79,7 @@ INTERNET
     ▼
 ┌──────────────────────────────────────────────┐
 │  Reverse Proxy (Nginx / Caddy / Cloudflare)  │
-│  callback.yourdomain.com → localhost:3901    │
+│  callback.yourdomain.com → 127.0.0.1:3901    │
 └──────────────────┬───────────────────────────┘
                    │
                    ▼
@@ -87,8 +87,13 @@ INTERNET
 │  Docker Network: ai-callback-network         │
 │                                              │
 │  ┌─────────────────────────────────────┐     │
-│  │  frontend (nginx)  :3901            │     │
+│  │  frontend (nginx, USER nginx)       │     │
+│  │  Internal :8080 → host 127.0.0.1:3901│    │
 │  │  • Serves Vue 3 SPA                 │     │
+│  │  • limit_req_zone, server_tokens off│     │
+│  │  • CSP, HSTS, anti-smuggling headers│     │
+│  │  • CF-Connecting-IP only forwarded  │     │
+│  │    when upstream is in trusted CIDR │     │
 │  │  • Proxies /api/*    → backend:3900 │     │
 │  │  • Proxies /socket.io/ → backend    │     │
 │  └────────────────┬────────────────────┘     │
@@ -155,17 +160,34 @@ cp .env.example .env
 
 ### 3. Generate lock files (one-time)
 
+The repo ships a Dockerised npm helper so **no Node.js is needed on the
+host**. Run the wrapper from the project root:
+
 ```bash
-docker run --rm -v "$(pwd)/backend":/app -w /app node:20-alpine \
-  npm install --package-lock-only
-docker run --rm -v "$(pwd)/frontend":/app -w /app node:20-alpine \
-  npm install --package-lock-only
+./build.sh lockfile           # regenerates package-lock.json in backend/ + frontend/
 ```
+
+The helper container is built once (mirrors `node:20-alpine` to match
+the runtime images), launched with `--rm`, and bind-mounts the project
+so generated files land back on the host with your UID. Other helper
+commands:
+
+```bash
+./build.sh                    # install deps + lockfiles (default)
+./build.sh build              # install + npm run build (produces dist/)
+./build.sh shell              # drop into a shell in the helper container
+./build.sh clean              # wipe node_modules/, dist/, .build-cache/
+```
+
+> If you see a `DEPRECATED: legacy builder` notice, install the buildx
+> plugin to silence it:
+> `sudo pacman -S docker-buildx` (Arch/Manjaro) or
+> `sudo apt install docker-buildx-plugin` (Debian/Ubuntu).
 
 ### 4. Build and start
 
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 The first build takes 2–4 minutes. Subsequent builds reuse Docker layer
@@ -227,13 +249,13 @@ The included themes:
 
 | Mode  | Themes |
 |-------|--------|
-| Dark  | Midnight Lab (default), Aurora Borealis, Whispering Forest, Obsidian Black, Tuscan Sunset, Deep Ocean, Monokai Pro, Dracula, Neon Cyberpunk, Espresso Bar, Coral Reef, Saffron Spice, Green Terminal |
-| Light | Sakura Bloom, Porcelain, Nordic Frost, Solarized Dawn, Antique Sepia, Matcha Tea, Rose Quartz, Arctic Glacier, Lavender Dusk |
+| Dark  | Midnight Lab, Aurora Borealis, Whispering Forest, Obsidian Black, Tuscan Sunset, Deep Ocean, Monokai Pro, Dracula, Neon Cyberpunk, Espresso Bar, Coral Reef, Saffron Spice, Green Terminal |
+| Light | **Porcelain (default)**, Sakura Bloom, Nordic Frost, Solarized Dawn, Antique Sepia, Matcha Tea, Rose Quartz, Arctic Glacier, Lavender Dusk |
 
 The terminal mode has its own palette set (independent from the GUI):
-**Phosphor Green** (default), **Amber CRT**, **Cathode Blue**,
-**Solarized Term**, **Nord Term**. Switch with the `theme` command
-(opens a TUI picker showing both GUI and terminal palettes).
+**Nord Term (default)**, **Phosphor Green**, **Amber CRT**, **Cathode Blue**,
+**Solarized Term**. Switch with the `theme` command (opens a TUI picker
+showing both GUI and terminal palettes).
 
 ---
 
@@ -383,10 +405,10 @@ sed -i "s|^TOTP_SECRET=.*|TOTP_SECRET=$(head -c 20 /dev/urandom | base32 | tr -d
 > ⚠️ `TOTP_SECRET` **must** contain only `A–Z` and `2–7`. Lowercase
 > letters, digits 0/1/8/9, dots, or any other characters break base32
 > decoding — TOTP verification will reject every code and the QR will
-> encode garbage. After changing the value, rebuild the backend image so
-> the new `.env` is baked in:
+> encode garbage. The `.env` is now read at runtime via `env_file:` (no
+> longer baked into the image), so rotating any secret only needs:
 > ```bash
-> docker-compose build && docker-compose up -d
+> docker compose up -d        # picks up the edited .env, no rebuild
 > ```
 > Rotating `TOTP_SECRET` invalidates every prior registration — all
 > operators have to scan a fresh QR.
@@ -485,9 +507,11 @@ the SPA without restarting the container:
    `🔒 .env` badge and **cannot be removed** at runtime; runtime-added
    ones get a delete button.
 
-The admin token and the unlock state both **persist in IndexedDB** so
-the operator stays in Super Mode across reloads. Clear the IDB to lock
-it again, or click "Exit Super Mode" inside the panel.
+The unlock state persists in IndexedDB (the operator stays "in Super
+Mode" across reloads), but the **admin token does not** — it lives only
+in memory. Reload the page → re-enter the token. This contains the
+blast radius of any future XSS or shared-machine snoop. Clear the IDB
+to lock it again, or click "Exit Super Mode" inside the panel.
 
 > Runtime-added origins live only in process memory — they're wiped on
 > container restart. Permanent changes belong in `UI_ORIGIN`.
@@ -533,7 +557,7 @@ All configuration lives in `.env` (copy from `.env.example` first).
 | `MASTER_PASSWORD`    | (empty)              | Gates the in-app QR reveal |
 | `TOTP_ISSUER`        | `AI Callback Explorer` |     |
 | `TOTP_LABEL`         | `admin`              |       |
-| `JWT_SECRET`         | (empty)              | Required when `AUTH_ENABLED=true` — backend refuses to start without it |
+| `JWT_SECRET`         | (empty)              | Required when `AUTH_ENABLED=true` — `JwtModule.registerAsync` throws at boot if missing |
 | `AUTH_TOKEN_TTL_SEC` | `900`                | 60–3600 |
 
 ### Frontend build (Vite)
@@ -642,39 +666,71 @@ Layer 3 — Login (when AUTH_ENABLED=true)
 Layer 4 — Application
   • Session IDs: UUID v4 (3.4 × 10³⁸ possible values).
   • Sessions expire after SESSION_TTL_HOURS of inactivity.
-  • Per-IP rate limiting on every endpoint.
-  • Helmet headers (strict CSP, HSTS, no referrer, frame-deny).
+  • Per-IP rate limiting on every endpoint (app-layer + nginx
+    limit_req_zone for /api/ and /api/callback/*).
+  • Helmet headers (strict CSP `connect-src 'self'`, HSTS, no
+    referrer, frame-deny).
   • Payload size capped (default 50 MB after inflation).
   • Callback endpoint always returns {received:true} (no oracle).
   • Admin endpoints: constant-time token comparison + filtering guard.
+  • Trust-proxy-aware client-IP resolution: CF-Connecting-IP /
+    X-Real-IP only consumed when the immediate TCP peer is in
+    TRUST_PROXY (defeats header spoofing).
 
-Layer 5 — Transport
+Layer 5 — Container
+  • read_only root filesystem (writes go only to declared tmpfs +
+    the named SQLite volume).
+  • cap_drop: ALL + no-new-privileges:true.
+  • Non-root users: nestjs (uid 1001) for backend, nginx (uid 101)
+    for frontend, master process included.
+  • Frontend nginx listens on internal 8080 (no NET_BIND_SERVICE
+    needed); host loopback maps to 127.0.0.1:3901.
+  • Lockfiles enforced strictly via `npm ci --ignore-scripts` in
+    both Dockerfiles — postinstall scripts on transitive deps are
+    contained (only known-native modules get explicit `npm rebuild`).
+  • Secrets injected at runtime via env_file: in compose, never
+    baked into images.
+
+Layer 6 — Transport
   • HTTPS / WSS terminated at the reverse proxy.
   • HSTS enforced, max-age=2y, includeSubDomains, preload.
 ```
 
 ---
 
-## 🛠️ Local development (without Docker)
+## 🛠️ Local development
 
-### Backend
+### With the build helper (no Node.js on the host required)
 
 ```bash
-cd backend
-npm install
-npm run start:dev    # http://localhost:3900
+./build.sh                # installs deps + lockfiles in backend/ and frontend/
+./build.sh shell          # interactive shell inside the helper image
 ```
 
-Reads `.env` from the project root via `node --env-file`.
+This is the recommended path: every npm operation runs inside a
+Dockerised helper (`Dockerfile.build`) launched with `--rm`, so the host
+never sees an `npm` binary or a `~/.npm` cache.
 
-### Frontend
+### With Node.js installed on the host
 
 ```bash
+# Backend
+cd backend
+npm install --ignore-scripts
+npm rebuild better-sqlite3
+npm run start:dev    # http://localhost:3900
+
+# Frontend
 cd frontend
-npm install
+npm install --ignore-scripts
+npm rebuild esbuild
 npm run dev          # http://localhost:5173
 # /api and /socket.io are proxied to localhost:3900 (vite.config.ts)
 ```
+
+The backend reads `.env` from the project root via `node --env-file`
+in dev mode (in production, `env_file:` in compose injects them as
+container env vars).
 
 ---
 
@@ -682,8 +738,10 @@ npm run dev          # http://localhost:5173
 
 ```
 ai-callback-explorer/
-├── docker-compose.yml
-├── .env / .env.example
+├── docker-compose.yml                       # read_only, cap_drop, tmpfs hardening
+├── .env / .env.example                      # env_file: into backend at runtime
+├── Dockerfile.build                         # build.sh helper image
+├── build.sh                                 # ./build.sh {install|build|lockfile|shell|clean}
 │
 ├── backend/                                 # NestJS application
 │   ├── Dockerfile                           # Adds python3/make/g++ for
@@ -817,7 +875,8 @@ ai-callback-explorer/
 | Sessions list (client cache)          | IndexedDB `sessions`                   | "Clear all" button (cascades to the server) or wiping IDB |
 | Callback payloads                     | IndexedDB `entries`                    | "Clear all", per-entry delete, or wiping IDB |
 | Theme + locale                        | IndexedDB `settings`                   | Wiping IDB |
-| Super Mode unlock + admin token       | IndexedDB `settings`                   | "Exit Super Mode" button or wiping IDB |
+| Super Mode unlock state               | IndexedDB `settings`                   | "Exit Super Mode" button or wiping IDB |
+| Super Mode admin token                | **Memory only** (Pinia state)          | Page reload — operator re-enters every time |
 | JWT (when `AUTH_ENABLED=true`)        | sessionStorage                         | Closing the tab, manual logout |
 
 The "Clear all" sidebar button now batch-deletes server-side too, so
@@ -833,19 +892,27 @@ guarantees the in-memory cache only ever contains live rows.
 ## 🐳 Docker reference
 
 ```bash
-docker-compose up -d --build              # Build & start in background
-docker-compose logs -f                    # Stream all logs
-docker-compose logs -f backend            # Single service
-docker-compose restart backend            # Restart without rebuilding
-docker-compose down                       # Stop (preserves images and the
+docker compose up -d --build              # Build & start in background
+docker compose up -d                      # After editing .env (no rebuild!)
+docker compose logs -f                    # Stream all logs
+docker compose logs -f backend            # Single service
+docker compose restart backend            # Restart without rebuilding
+docker compose down                       # Stop (preserves images and the
                                           #  ai-callback-data volume)
-docker-compose down --rmi local           # Stop + remove local images
+docker compose down --rmi local           # Stop + remove local images
                                           #  (volume still preserved)
 docker stats ai-callback-backend ai-callback-frontend
 
 # Inspect / wipe the SQLite session store:
 docker volume inspect ai-callback-explorer_ai-callback-data
 docker volume rm ai-callback-explorer_ai-callback-data   # nuke all sessions
+
+# Build helper (no Node.js needed on host):
+./build.sh lockfile                       # Regenerate package-lock.json
+./build.sh                                # Install deps + lockfiles
+./build.sh build                          # install + npm run build
+./build.sh shell                          # Drop into the helper container
+./build.sh clean                          # Wipe node_modules/, dist/, cache
 ```
 
 ---
