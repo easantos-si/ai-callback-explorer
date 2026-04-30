@@ -9,7 +9,6 @@ interface AuthConfig {
   enabled: boolean;
   tokenTtlSec: number;
   originFilteringEnabled: boolean;
-  webhookBindsEnabled: boolean;
   sessionTtlHours: number;
   urlBase: string;
 }
@@ -33,11 +32,6 @@ export const useAuthStore = defineStore('auth', () => {
   // Super Mode 12-press gate does anything and whether the SettingsMenu
   // renders the Super section at all.
   const originFilteringEnabled = ref(false);
-  // Mirrors WEBHOOK_BINDS_ENABLED on the server. When false, the
-  // `bind` family of terminal commands stays hidden and the SPA does
-  // not forward incoming callbacks anywhere — even if old binds
-  // happen to linger in IndexedDB from a previous build.
-  const webhookBindsEnabled = ref(false);
   // Mirrors SESSION_TTL_HOURS. We don't enforce it client-side — the
   // server cleans up — but we use it to grey out sessions that have
   // probably already expired.
@@ -123,7 +117,6 @@ export const useAuthStore = defineStore('auth', () => {
       const cfg = (await res.json()) as AuthConfig;
       tokenTtlSec.value = cfg.tokenTtlSec;
       originFilteringEnabled.value = !!cfg.originFilteringEnabled;
-      webhookBindsEnabled.value = !!cfg.webhookBindsEnabled;
       if (cfg.sessionTtlHours && cfg.sessionTtlHours > 0) {
         sessionTtlHours.value = cfg.sessionTtlHours;
       }
@@ -333,7 +326,6 @@ export const useAuthStore = defineStore('auth', () => {
     lockedUntil,
     clockTick,
     originFilteringEnabled,
-    webhookBindsEnabled,
     sessionTtlHours,
     urlBase,
     isAuthenticated,

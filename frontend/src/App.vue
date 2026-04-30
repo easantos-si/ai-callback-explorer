@@ -57,7 +57,6 @@ import { useSessionStore } from '@/stores/sessions';
 import { useSuperModeStore } from '@/stores/superMode';
 import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
-import { useBindsStore } from '@/stores/binds';
 import { useWebSocket } from '@/composables/useWebSocket';
 import SessionSidebar from '@/components/SessionSidebar.vue';
 import SessionPanel from '@/components/SessionPanel.vue';
@@ -74,7 +73,6 @@ const store = useSessionStore();
 const superMode = useSuperModeStore();
 const settings = useSettingsStore();
 const auth = useAuthStore();
-const binds = useBindsStore();
 const ws = useWebSocket();
 const showCreateDialog = ref(false);
 
@@ -177,10 +175,10 @@ async function bootstrapMainApp(): Promise<void> {
   bootstrapped = true;
 
   // Connect the WS and install the callback handler FIRST. Any
-  // optional async work (super mode hydrate, bind hydrate) runs in
-  // parallel afterwards. We learned the hard way that awaiting hydrate
-  // before ws.connect lets a slow / blocked IndexedDB swallow the
-  // entire callback pipeline — and the operator sees nothing land in
+  // optional async work (super mode hydrate) runs in parallel
+  // afterwards. We learned the hard way that awaiting hydrate before
+  // ws.connect lets a slow / blocked IndexedDB swallow the entire
+  // callback pipeline — and the operator sees nothing land in
   // either GUI or terminal.
   ws.connect();
   ws.onCallback(async (entry) => {
@@ -189,18 +187,11 @@ async function bootstrapMainApp(): Promise<void> {
     } catch (e) {
       console.warn('[App] addEntry failed:', e);
     }
-    // Fire-and-forget forwarding for any bound proxies. We must not
-    // let a misbehaving target — or the bind store still warming up
-    // — break ingestion.
-    binds.forward(entry).catch((e) => {
-      console.warn('[App] bind forward failed:', e);
-    });
   });
 
-  // Side-loaded hydrates: they fill in state but shouldn't gate the
-  // WS pipeline. Errors are logged but not propagated.
+  // Side-loaded hydrate: fills in state but shouldn't gate the WS
+  // pipeline. Errors are logged but not propagated.
   superMode.hydrate().catch((e) => console.warn('[App] superMode hydrate:', e));
-  binds.hydrate().catch((e) => console.warn('[App] binds hydrate:', e));
 
   window.addEventListener('keydown', onGlobalKeydown);
 }

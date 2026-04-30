@@ -75,7 +75,6 @@ import { ref, onMounted, watch, nextTick, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { useSessionStore } from '@/stores/sessions';
-import { useBindsStore } from '@/stores/binds';
 import { useWebSocket } from '@/composables/useWebSocket';
 import { applyTuiTheme, getTuiTheme, DEFAULT_TUI_THEME_ID } from './themes';
 import { useVirtualFs } from './fs';
@@ -92,7 +91,6 @@ type Mode = 'shell' | 'language' | 'theme' | 'session';
 const { t, locale } = useI18n();
 const settings = useSettingsStore();
 const store = useSessionStore();
-const binds = useBindsStore();
 const ws = useWebSocket();
 const fs = useVirtualFs();
 
@@ -346,27 +344,6 @@ onMounted(() => {
     } catch (e) {
       console.warn('[Terminal] addEntry failed:', e);
     }
-    // Forward to any bound proxies; show one terminal line per
-    // attempt so the operator can see whether the redirect worked.
-    // Wrapped so a flaky bind store can't break the rest of the
-    // pipeline (live-tail subscribers + ambient arrival link).
-    binds.forward(entry).then((results) => {
-      for (const r of results) {
-        const tone: 'ok' | 'err' = r.ok ? 'ok' : 'err';
-        const message = r.ok
-          ? `→ ${r.targetUrl}  HTTP ${r.status}  ${r.durationMs}ms`
-          : `→ ${r.targetUrl}  ${r.error ?? `HTTP ${r.status}`}  ${r.durationMs}ms`;
-        lines.value.push({
-          kind: 'node',
-          node: {
-            kind: 'callout',
-            data: { tone, message },
-            textRepr: message,
-          },
-        });
-      }
-      if (results.length > 0) void scrollToBottom();
-    }).catch((e) => console.warn('[Terminal] bind forward failed:', e));
     // Notify shell-level subscribers (`tail -f`, SessionView).
     for (const fn of callbackListeners) {
       try { fn(entry); } catch { /* ignore listener errors */ }
@@ -435,7 +412,12 @@ onMounted(() => {
 .tui-sys { color: var(--tui-fg-dim, #1f8a37); }
 .tui-node { white-space: normal; }
 
-.tui-input-echo { color: var(--tui-fg); }
+.tui-input-echo {
+  /* Mirror the 8px gap used by `.tui-prompt-line` (a flex container)
+     so the echoed history sits at the same column as the live cursor. */
+  color: var(--tui-fg);
+  margin-left: 8px;
+}
 
 .tui-prompt {
   color: var(--tui-prompt, #5cff85);

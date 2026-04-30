@@ -40,20 +40,11 @@ export class AuthController {
     tokenTtlSec: number;
     urlBase: string;
     originFilteringEnabled: boolean;
-    webhookBindsEnabled: boolean;
     sessionTtlHours: number;
   } {
     return {
       ...this.auth.config(),
       originFilteringEnabled: isFilteringEnabled(),
-      // Mirrors WEBHOOK_BINDS_ENABLED on the server. Gates the `bind`
-      // family of terminal commands (add/list/rm). The forwarding
-      // itself runs on the SPA — this flag controls visibility, not
-      // delivery. Default off because outgoing fetches from the SPA
-      // hit arbitrary URLs and that's not always desirable.
-      webhookBindsEnabled:
-        (process.env.WEBHOOK_BINDS_ENABLED ?? 'false').toLowerCase() ===
-        'true',
       // Mirrors SESSION_TTL_HOURS so the SPA can tag sessions older
       // than this as visually expired. Server-side cleanup is still
       // authoritative; this is just for the operator's eyes.

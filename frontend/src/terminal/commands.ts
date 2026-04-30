@@ -18,7 +18,6 @@ import { useSessionStore } from '@/stores/sessions';
 import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { useSuperModeStore } from '@/stores/superMode';
-import { useBindsStore } from '@/stores/binds';
 import { AVAILABLE_LOCALES, type LocaleCode } from '@/i18n';
 import { TUI_THEMES, getTuiTheme } from './themes';
 import { THEMES } from '@/themes';
@@ -932,106 +931,6 @@ const ping: Command = {
   },
 };
 
-// ---- bind (webhook proxy) -----------------------------------------
-
-const bind: Command = {
-  name: 'bind',
-  briefKey: 'terminal.man.bind.brief',
-  hidden() { return !useAuthStore().webhookBindsEnabled; },
-  complete(_partial, fs) {
-    // First-arg completer is rough — the runner invokes complete()
-    // independent of which subcommand the user is typing. Returning
-    // both subcommand verbs and session slugs lets Tab help in either
-    // position. Practical enough for an interactive shell.
-    return ['list', 'add', 'rm', ...fs.listSessions().map((s) => s.slug)];
-  },
-  async run({ args, stdio, fs, t }) {
-    if (!useAuthStore().webhookBindsEnabled) {
-      stdio.errln(t('terminal.bind.disabled'));
-      return 1;
-    }
-
-    const bindsStore = useBindsStore();
-    if (!bindsStore.hydrated) await bindsStore.hydrate();
-
-    const sub = (args.positional[0] ?? 'list').toLowerCase();
-
-    if (sub === 'list' || sub === 'ls') {
-      const all = bindsStore.binds;
-      if (all.length === 0) {
-        stdio.writeNode({
-          kind: 'callout',
-          data: { tone: 'info', message: t('terminal.bind.empty') },
-          textRepr: t('terminal.bind.empty'),
-        });
-        return 0;
-      }
-      const sessions = fs.listSessions();
-      const sessionLabel = (id: string): string => {
-        const s = sessions.find((x) => x.session.id === id);
-        return s ? s.slug : id.slice(0, 8);
-      };
-      const rows = all.map((b) => ({
-        key: b.id,
-        value: `${sessionLabel(b.sessionId).padEnd(20)} →  ${b.targetUrl}`,
-      }));
-      stdio.writeNode({
-        kind: 'kv',
-        data: { rows },
-        textRepr: rows.map((r) => `${r.key}  ${r.value}`).join('\n'),
-      });
-      return 0;
-    }
-
-    if (sub === 'add') {
-      const target = args.positional[1];
-      const url = args.positional[2];
-      if (!target || !url) {
-        stdio.errln('bind add <session> <target-url>');
-        return 2;
-      }
-      const fsess = fs.findSession(target.replace(/^\/+/, ''));
-      if (!fsess) { stdio.errln(`bind: ${target}: no such session`); return 1; }
-      try { new URL(url); }
-      catch { stdio.errln('bind: invalid target URL'); return 2; }
-
-      const created = await bindsStore.add(fsess.session.id, url.trim());
-      stdio.writeNode({
-        kind: 'callout',
-        data: {
-          tone: 'ok',
-          message: t('terminal.bind.added', {
-            id: created.id,
-            session: fsess.slug,
-            url,
-          }),
-        },
-        textRepr: `bind ${created.id} added: ${fsess.slug} → ${url}`,
-      });
-      return 0;
-    }
-
-    if (sub === 'rm' || sub === 'remove' || sub === 'delete') {
-      const id = args.positional[1];
-      if (!id) { stdio.errln('bind rm <id>'); return 2; }
-      const removed = await bindsStore.remove(id);
-      if (!removed) {
-        stdio.errln(`bind: ${id}: no such bind`);
-        return 1;
-      }
-      stdio.writeNode({
-        kind: 'callout',
-        data: { tone: 'ok', message: t('terminal.bind.removed', { id }) },
-        textRepr: `bind ${id} removed`,
-      });
-      return 0;
-    }
-
-    stdio.errln(`bind: unknown subcommand '${sub}' (use list/add/rm)`);
-    return 2;
-  },
-};
-
 // ---- super-mode commands -------------------------------------------
 //
 // All four are gated on `superMode.unlocked`. They appear in
@@ -1415,7 +1314,7 @@ const REGISTRY_LIST: Command[] = [
   ls, pwd, cat, head, tail, rm, newCmd, grep, echoCmd, wc, uniq, cut,
   sed, awk, jq, copy, clear, time, dateCmd, hour,
   gui, exitCmd, config,
-  language, theme, select, open, wget, ping, info, bind,
+  language, theme, select, open, wget, ping, info,
   origins, originAdd, originRm, share,
   help, man,
 ];
@@ -1430,7 +1329,7 @@ const REGISTRY_LIST: Command[] = [
 
 const HELP_GROUPS: Array<{ key: string; commands: string[] }> = [
   { key: 'sessions', commands: ['new', 'ls', 'select', 'open', 'rm', 'cat', 'head', 'tail'] },
-  { key: 'network',  commands: ['wget', 'ping', 'bind'] },
+  { key: 'network',  commands: ['wget', 'ping'] },
   { key: 'pipes',    commands: ['grep', 'sed', 'awk', 'cut', 'wc', 'uniq', 'jq', 'echo', 'copy'] },
   { key: 'system',   commands: ['info', 'config', 'language', 'theme', 'time', 'date', 'hour', 'pwd', 'clear', 'gui', 'exit'] },
   { key: 'super',    commands: ['origins', 'origin-add', 'origin-rm', 'share'] },

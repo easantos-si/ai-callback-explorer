@@ -128,12 +128,6 @@ export default {
       disabled: '— autenticação desativada',
       noSession: '— nenhuma ativa',
     },
-    bind: {
-      disabled: 'redirecionamento de webhooks desabilitado (defina WEBHOOK_BINDS_ENABLED=true no backend)',
-      empty: 'nenhum bind registrado',
-      added: 'bind {id} adicionado: {session} → {url}',
-      removed: 'bind {id} removido',
-    },
     cat: {
       urlIntro: 'URL de callback desta sessão:',
       empty: 'Esta sessão ainda não recebeu nenhum callback.',

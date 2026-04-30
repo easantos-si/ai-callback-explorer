@@ -128,12 +128,6 @@ export default {
       disabled: '— auth disabled',
       noSession: '— none active',
     },
-    bind: {
-      disabled: 'webhook binds are disabled (set WEBHOOK_BINDS_ENABLED=true on the backend)',
-      empty: 'no binds registered',
-      added: 'bind {id} added: {session} → {url}',
-      removed: 'bind {id} removed',
-    },
     cat: {
       urlIntro: 'Callback URL for this session:',
       empty: 'No callbacks have been received for this session yet.',
@@ -192,7 +186,6 @@ export default {
       originAdd: { brief: '[super] add a runtime origin', full: 'origin-add <url>\n  Adds <url> to the runtime allow-list (won\'t persist across restarts).\n  Requires super-mode unlocked + admin token.' },
       originRm: { brief: '[super] remove a runtime origin', full: 'origin-rm <url>\n  Removes a runtime-added origin. env-configured origins (UI_ORIGIN) cannot\n  be removed at runtime — that returns a warning.' },
       share: { brief: '[super] reveal the share link', full: 'share <master-password>\n  Calls /api/auth/qr with the master password and prints the share URL\n  with a copy button. Anyone holding the link can open the QR view\n  without the password (until the master password changes).' },
-      bind: { brief: 'manage webhook proxy binds', full: 'bind list\nbind add <session> <target-url>\nbind rm <id>\n  Adds a forwarding rule: every callback received for <session> is\n  re-POSTed to <target-url> from this browser tab. Persists in IndexedDB\n  until removed. Forwarding only happens while the SPA is open.\n  Gated by WEBHOOK_BINDS_ENABLED on the backend.' },
       help: { brief: 'list commands and shortcuts', full: 'help' },
       man: { brief: 'show command manual', full: 'man <command>' },
     },

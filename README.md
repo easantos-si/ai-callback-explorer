@@ -25,8 +25,8 @@ webhook delivery on job completion.
 - 💾 **SQLite-backed sessions** — backend persists every session to a
   Docker-volume-mounted SQLite file. Rebuilds, restarts and OOM kills
   no longer wipe live sessions; expired rows are purged at boot.
-- 🧠 **IndexedDB storage** — payloads, settings, terminal binds,
-  theme/locale, and super-mode state persist locally in the browser.
+- 🧠 **IndexedDB storage** — payloads, theme, locale, and super-mode
+  state persist locally in the browser.
 - 🌲 **Interactive JSON viewer** — collapsible tree view, raw mode, copy
 - 📋 **One-click copy** for callback URLs and payloads
 - 🐳 **Docker-first** — `docker-compose up --build` runs everything
@@ -35,9 +35,9 @@ webhook delivery on job completion.
 - 🖥️ **Full shell** — toggle from the gear menu or run `gui`/`exit`
   to flip back. Pipelines (`|`), history (↑/↓), tab-completion, Ctrl+C
   to abort foreground jobs, Ctrl+L to clear.
-- 📜 **30+ commands** — `ls`, `cat`, `head`, `tail -f`, `grep`, `sed`,
-  `awk`, `cut`, `wc`, `uniq`, `jq`, `copy`, `wget`, `ping`, `bind`,
-  `info`, plus session ones (`new`, `select`, `open`, `rm`).
+- 📜 **Many built-in commands** — `ls`, `cat`, `head`, `tail -f`,
+  `grep`, `sed`, `awk`, `cut`, `wc`, `uniq`, `jq`, `copy`, `wget`,
+  `ping`, `info`, plus session ones (`new`, `select`, `open`, `rm`).
 - 🎨 **Rich output** — JSON trees, structured callback blocks,
   fastfetch-style info banner, clickable arrival links that open the
   detail viewer at the right callback.
@@ -45,14 +45,6 @@ webhook delivery on job completion.
   Solarized Term, Nord Term. Independent from the GUI theme.
 - 🔁 **Bare-slug shortcut** — type a session slug + Enter to select it
   and watch new callbacks land in the prompt as clickable rows.
-
-### Webhook proxy binds (opt-in)
-- 🔀 **Forward callbacks** to any URL via `bind add <session> <url>`
-  in the terminal. Each bind is a local "proxy rule": the SPA records
-  the callback and re-POSTs the same payload to the target.
-- 💽 **Persistent in IndexedDB** — survives reloads until removed.
-- 🔐 **Gated** behind `WEBHOOK_BINDS_ENABLED=true` on the backend; with
-  the flag off the `bind` command and stored binds are inert.
 
 ### UI customisation
 - 🌍 **8 languages** — English (US), English (UK), Português (BR),
@@ -122,8 +114,7 @@ INTERNET
 Browser (IndexedDB v2)
   • sessions          — session list (mirrors the server side)
   • entries           — all callback payloads
-  • settings          — theme, locale, super-mode unlock + admin token,
-                        webhook binds (when enabled)
+  • settings          — theme, locale, super-mode unlock + admin token
   Persists across page reloads. Clearing IDB resets ALL of the above.
 
 Browser (sessionStorage)
@@ -265,7 +256,7 @@ any time with `info`.
 | Group | Commands |
 |-------|----------|
 | Sessions & callbacks | `new`, `ls` (with `-l`), `select`, `open`, `rm`, `cat`, `head`, `tail` (`-f` follow) |
-| Network & forwarding | `wget` (HTTP request, JSON envelope), `ping` (URL → ok/fail), `bind` |
+| Network              | `wget` (HTTP request, JSON envelope), `ping` (URL → ok/fail) |
 | Text pipes | `grep`, `sed`, `awk`, `cut` (`-c`/`-d`/`-f`), `wc`, `uniq`, `jq`, `echo`, `copy` |
 | System & display | `info`, `config`, `language`, `theme`, `time`, `date`, `hour`, `pwd`, `clear`, `gui`, `exit` |
 | Super mode | `origins`, `origin-add`, `origin-rm`, `share` (hidden until unlocked) |
@@ -302,35 +293,6 @@ blocks (`pt-BR` → `21/04/2026:14:30:45`, `en-US` →
 `04/21/2026:14:30:45`, `de` → `21.04.2026:14:30:45`).
 Clicking any `[ METHOD /path ]` arrival link opens the SessionView at
 that exact callback.
-
----
-
-## 🔀 Webhook proxy binds (optional)
-
-Set `WEBHOOK_BINDS_ENABLED=true` in `.env` to expose the `bind` command
-family. Each bind is a forwarding rule keyed by session id: when a
-callback arrives, the SPA records it **and** re-POSTs the same payload
-to the target URL.
-
-```
-bind list
-bind add <session> <https://target/url>
-bind rm <id>
-```
-
-- Binds are stored in IndexedDB under `binds.list`, so they survive
-  reloads.
-- Forwarding runs **inside the SPA tab** — there's no server-side
-  forwarder. If you close the tab, forwarding stops.
-- The forwarder preserves method, content-type and body. It adds
-  `X-Forwarded-By: callback-explorer`, `X-Forwarded-Method`,
-  `X-Forwarded-Path` headers so the target can correlate.
-- In terminal mode, every forward attempt prints a one-line
-  `→ <url> HTTP <status> <ms>ms` callout (green for ok, red for
-  network/HTTP errors).
-- With the env flag off the `bind` command is hidden from `help`,
-  tab-completion and `man`, and the SPA refuses to forward even if old
-  rows linger in IndexedDB.
 
 ---
 
@@ -555,11 +517,6 @@ All configuration lives in `.env` (copy from `.env.example` first).
 | `MAX_CALLBACKS_PER_SESSION`    | `10000`                  |       |
 | `MAX_BYTES_PER_SESSION`        | `209715200`              | 200 MB per session |
 
-### Webhook proxy binds
-| Variable                       | Default | Notes |
-|--------------------------------|---------|-------|
-| `WEBHOOK_BINDS_ENABLED`        | `false` | When true, the SPA exposes the `bind` terminal command. Forwarding runs in the browser tab — no server-side proxy. |
-
 ### CORS / origins
 | Variable                    | Default | Notes |
 |-----------------------------|---------|-------|
@@ -740,8 +697,7 @@ ai-callback-explorer/
 │       ├── auth/                            # Login & TOTP
 │       │   ├── auth.module.ts
 │       │   ├── auth.controller.ts           # /api/auth/* (config now
-│       │   │                                #   exposes sessionTtlHours
-│       │   │                                #   and webhookBindsEnabled)
+│       │   │                                #   exposes sessionTtlHours)
 │       │   ├── auth.service.ts              # TOTP + JWT issue/verify
 │       │   ├── captcha.service.ts           # Homemade SVG anti-bot
 │       │   ├── jwt-auth.guard.ts
@@ -822,8 +778,7 @@ ai-callback-explorer/
         │   ├── auth.ts                      # JWT + captcha + refresh
         │   ├── settings.ts                  # Theme/locale + view-mode
         │   ├── superMode.ts                 # 12-press unlock + admin
-        │   ├── sessions.ts                  # Cache + serverStatus
-        │   └── binds.ts                     # Webhook proxy rules
+        │   └── sessions.ts                  # Cache + serverStatus
         │
         ├── composables/
         │   ├── useIndexedDB.ts              # Local persistent storage
@@ -863,7 +818,6 @@ ai-callback-explorer/
 | Callback payloads                     | IndexedDB `entries`                    | "Clear all", per-entry delete, or wiping IDB |
 | Theme + locale                        | IndexedDB `settings`                   | Wiping IDB |
 | Super Mode unlock + admin token       | IndexedDB `settings`                   | "Exit Super Mode" button or wiping IDB |
-| Webhook binds                         | IndexedDB `settings` (`binds.list`)    | `bind rm <id>` or wiping IDB. With `WEBHOOK_BINDS_ENABLED=false` the rows are loaded but never used. |
 | JWT (when `AUTH_ENABLED=true`)        | sessionStorage                         | Closing the tab, manual logout |
 
 The "Clear all" sidebar button now batch-deletes server-side too, so
@@ -872,7 +826,7 @@ guarantees the in-memory cache only ever contains live rows.
 
 > **Note:** the IDB schema is at **version 2**. Existing browsers
 > upgrade automatically — sessions and entries are preserved; the new
-> `settings` store and bind rows are added on first load.
+> `settings` store is added on first load.
 
 ---
 
