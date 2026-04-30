@@ -86,34 +86,34 @@ INTERNET
 ┌──────────────────────────────────────────────┐
 │  Docker Network: ai-callback-network         │
 │                                              │
-│  ┌─────────────────────────────────────┐     │
-│  │  frontend (nginx, USER nginx)       │     │
-│  │  Internal :8080 → host 127.0.0.1:3901│    │
-│  │  • Serves Vue 3 SPA                 │     │
-│  │  • limit_req_zone, server_tokens off│     │
-│  │  • CSP, HSTS, anti-smuggling headers│     │
-│  │  • CF-Connecting-IP only forwarded  │     │
-│  │    when upstream is in trusted CIDR │     │
-│  │  • Proxies /api/*    → backend:3900 │     │
-│  │  • Proxies /socket.io/ → backend    │     │
-│  └────────────────┬────────────────────┘     │
+│  ┌────────────────────────────────────────┐  │
+│  │  frontend (nginx, USER nginx)          │  │
+│  │  Internal :8080 → host 127.0.0.1:3901  │  │
+│  │  • Serves Vue 3 SPA                    │  │
+│  │  • limit_req_zone, server_tokens off   │  │
+│  │  • CSP, HSTS, anti-smuggling headers   │  │
+│  │  • CF-Connecting-IP only forwarded     │  │
+│  │    when upstream is in trusted CIDR    │  │
+│  │  • Proxies /api/*    → backend:3900    │  │
+│  │  • Proxies /socket.io/ → backend       │  │
+│  └────────────────┬───────────────────────┘  │
 │                   │ internal network         │
-│  ┌────────────────▼────────────────────┐     │
-│  │  backend (NestJS)  :3900            │     │
-│  │  • REST API (sessions, callbacks)   │     │
-│  │  • Socket.IO gateway (JWT-gated     │     │
-│  │    when AUTH_ENABLED=true)          │     │
-│  │  • Auth: TOTP + JWT + captcha       │     │
-│  │  • Admin: runtime CORS allow list   │     │
-│  │  • SQLite session store + cache     │     │
-│  │  • Boot-time cleanup of expired     │     │
-│  └─────────────────────────────────────┘     │
+│  ┌────────────────▼───────────────────────┐  │
+│  │  backend (NestJS)  :3900               │  │
+│  │  • REST API (sessions, callbacks)      │  │
+│  │  • Socket.IO gateway (JWT-gated        │  │
+│  │    when AUTH_ENABLED=true)             │  │
+│  │  • Auth: TOTP + JWT + captcha          │  │
+│  │  • Admin: runtime CORS allow list      │  │
+│  │  • SQLite session store + cache        │  │
+│  │  • Boot-time cleanup of expired        │  │
+│  └────────────────────────────────────────┘  │
 │                   │                          │
-│  ┌────────────────▼────────────────────┐     │
-│  │  named volume: ai-callback-data     │     │
-│  │  /app/data/sessions.db (SQLite)     │     │
-│  │  Survives image rebuilds + restarts │     │
-│  └─────────────────────────────────────┘     │
+│  ┌────────────────▼───────────────────────┐  │
+│  │  named volume: ai-callback-data        │  │
+│  │  /app/data/sessions.db (SQLite)        │  │
+│  │  Survives image rebuilds + restarts    │  │
+│  └────────────────────────────────────────┘  │
 └──────────────────────────────────────────────┘
 
 Browser (IndexedDB v2)
