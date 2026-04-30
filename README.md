@@ -100,7 +100,7 @@ INTERNET
 │  │  • Proxies /api/*    → backend:3900 │     │
 │  │  • Proxies /socket.io/ → backend    │     │
 │  └────────────────┬────────────────────┘     │
-│                   │ internal network          │
+│                   │ internal network         │
 │  ┌────────────────▼────────────────────┐     │
 │  │  backend (NestJS)  :3900            │     │
 │  │  • REST API (sessions, callbacks)   │     │
