@@ -1,34 +1,43 @@
 # ============================================
+# Build context: project root (see docker-compose.yml).
+# All COPY paths therefore start with `frontend/...`.
+# ============================================
 # Stage 1: Build Vue app
 # ============================================
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# These ARGs are populated by docker-compose from the root `.env` via
+# ${VAR} interpolation. They become ENV during the Vite build, get baked
+# into the static bundle, and have no presence in the runtime image.
 ARG VITE_API_BASE_URL=
 ARG VITE_WS_PATH=/socket.io
 
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 ENV VITE_WS_PATH=${VITE_WS_PATH}
 
-# Install dependencies
-COPY package.json ./
-COPY package-lock.json* ./
-RUN if [ -f package-lock.json ]; then \
-      npm ci; \
-    else \
-      npm install; \
-    fi
+# Quiet npm: suppress the "new major version available" notice, the
+# funding nag, and audit chatter during install. Purely cosmetic.
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false
 
-# Copy source + config
-COPY tsconfig.json tsconfig.node.json vite.config.ts env.d.ts ./
-COPY index.html ./
-COPY src/ ./src/
+COPY frontend/package.json ./
+COPY frontend/package-lock.json* ./
 
-# Build
+# Sync the lockfile with package.json, then install deterministically.
+# Vite/Vue need install scripts to run (esbuild, etc.), so --ignore-scripts
+# is intentionally NOT used here.
+RUN npm install --package-lock-only \
+ && npm ci
+
+COPY frontend/tsconfig.json frontend/tsconfig.node.json frontend/vite.config.ts frontend/env.d.ts ./
+COPY frontend/index.html ./
+COPY frontend/src/ ./src/
+
 RUN npm run build
 
-# Verify dist
 RUN test -f dist/index.html || (echo "Frontend build failed" && exit 1)
 
 # ============================================
@@ -36,16 +45,12 @@ RUN test -f dist/index.html || (echo "Frontend build failed" && exit 1)
 # ============================================
 FROM nginx:1.27-alpine
 
-# Remove default config
 RUN rm -f /etc/nginx/conf.d/default.conf
 
-# Copy built app
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
-# Create required directories with correct permissions
 RUN chown -R nginx:nginx /usr/share/nginx/html && \
     chown -R nginx:nginx /var/cache/nginx && \
     chown -R nginx:nginx /var/log/nginx && \

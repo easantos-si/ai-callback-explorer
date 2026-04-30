@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { redactUrl } from '../util/redact';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -14,8 +15,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
-
-    // Guard: WebSocket contexts don't have getResponse
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
@@ -42,19 +41,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
         message = (resp.message as string) || exception.message;
       }
     } else if (exception instanceof Error) {
-      message = exception.message;
+      message = process.env.NODE_ENV === 'production' ? 'Internal server error' : exception.message;
     }
 
-    this.logger.error(
-      `${request?.method} ${request?.url} → ${status}: ${message}`,
-    );
+    const safeUrl = redactUrl(request?.url);
+
+    this.logger.error(`${request?.method} ${safeUrl} → ${status}: ${message}`);
 
     response.status(status).json({
       success: false,
       statusCode: status,
       message,
       timestamp: new Date().toISOString(),
-      path: request?.url,
+      path: safeUrl,
     });
   }
 }

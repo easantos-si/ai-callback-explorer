@@ -1,5 +1,9 @@
 <template>
-  <div class="entry" :class="{ selected }" @click="$emit('click')">
+  <div
+    class="entry"
+    :class="{ selected, focused: focused && !selected }"
+    @click="$emit('click')"
+  >
     <div class="entry-left">
       <span
         class="method-badge"
@@ -16,7 +20,7 @@
       <span class="entry-preview">{{ bodyPreview }}</span>
       <button
         class="btn-delete-entry"
-        title="Remover"
+        :title="t('detail.remove')"
         @click.stop="$emit('delete')"
       >
         ✕
@@ -27,6 +31,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { CallbackEntry as EntryType } from '@/types';
 import {
   formatDate,
@@ -34,9 +39,12 @@ import {
   guessContentType,
 } from '@/utils/formatters';
 
+const { t } = useI18n();
+
 const props = defineProps<{
   entry: EntryType;
   selected: boolean;
+  focused?: boolean;
 }>();
 
 defineEmits<{
@@ -46,12 +54,12 @@ defineEmits<{
 
 const bodyPreview = computed((): string => {
   const body = props.entry.body;
-  if (body === null || body === undefined) return '(empty)';
+  if (body === null || body === undefined) return t('detail.empty');
   try {
     const str = typeof body === 'string' ? body : JSON.stringify(body);
     return str.length > 120 ? str.slice(0, 120) + '…' : str;
   } catch {
-    return '(binary)';
+    return t('detail.binary');
   }
 });
 </script>
@@ -80,6 +88,11 @@ const bodyPreview = computed((): string => {
   background: var(--bg-active);
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent-glow);
+}
+
+.entry.focused {
+  border-color: var(--accent);
+  background: var(--bg-hover);
 }
 
 .entry-left {

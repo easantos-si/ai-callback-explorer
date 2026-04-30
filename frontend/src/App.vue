@@ -1,13 +1,23 @@
 <template>
-  <div class="app-layout">
+  <ShareQrView
+    v-if="shareToken"
+    :token="shareToken"
+    @close="closeShareView"
+  />
+
+  <LoginScreen v-else-if="auth.requiresLogin || auth.phase === 'loading'" />
+
+  <TerminalView v-else-if="settings.viewMode === 'tui'" />
+
+  <div v-else class="app-layout">
     <SessionSidebar @create-session="showCreateDialog = true" />
 
     <main class="main-content">
       <div v-if="!store.activeSession" class="empty-main">
         <EmptyState
           icon="📡"
-          title="AI Callback Explorer"
-          subtitle="Crie uma sessão para começar a receber callbacks da API"
+          :title="t('panel.emptyTitle')"
+          :subtitle="t('panel.emptySubtitle')"
         />
       </div>
       <SessionPanel v-else />
@@ -31,7 +41,7 @@
       :class="{ connected: ws.connected.value }"
     >
       <span class="dot" />
-      {{ ws.connected.value ? 'Conectado' : 'Desconectado' }}
+      {{ ws.connected.value ? t('connection.connected') : t('connection.disconnected') }}
     </div>
 
     <div v-if="store.error" class="error-toast" @click="store.error = null">
@@ -42,30 +52,204 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch, onBeforeUnmount } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useSessionStore } from '@/stores/sessions';
+import { useSuperModeStore } from '@/stores/superMode';
+import { useSettingsStore } from '@/stores/settings';
+import { useAuthStore } from '@/stores/auth';
+import { useBindsStore } from '@/stores/binds';
 import { useWebSocket } from '@/composables/useWebSocket';
 import SessionSidebar from '@/components/SessionSidebar.vue';
 import SessionPanel from '@/components/SessionPanel.vue';
 import CallbackDetail from '@/components/CallbackDetail.vue';
 import CreateSessionDialog from '@/components/CreateSessionDialog.vue';
 import EmptyState from '@/components/EmptyState.vue';
+import LoginScreen from '@/components/LoginScreen.vue';
+import ShareQrView from '@/components/ShareQrView.vue';
+import TerminalView from '@/terminal/TerminalView.vue';
 import type { Session } from '@/types';
 
+const { t } = useI18n();
 const store = useSessionStore();
+const superMode = useSuperModeStore();
+const settings = useSettingsStore();
+const auth = useAuthStore();
+const binds = useBindsStore();
 const ws = useWebSocket();
 const showCreateDialog = ref(false);
 
-onMounted(async () => {
-  await store.initialize();
-  ws.connect();
+// Share-link landing — when the URL carries `?share=<token>`, render the
+// QR-only view BEFORE either the login screen or the main app. Closing
+// it (ESC or X) clears the query string so the URL resembles a normal
+// visit and the standard login/auth flow takes over.
+const shareToken = ref('');
 
+function closeShareView(): void {
+  shareToken.value = '';
+  try {
+    history.replaceState({}, '', window.location.pathname);
+  } catch {
+    // history may be unavailable in some sandboxed contexts; ignore.
+  }
+}
+
+function isTypingTarget(t: EventTarget | null): boolean {
+  if (!(t instanceof HTMLElement)) return false;
+  const tag = t.tagName;
+  return (
+    tag === 'INPUT' ||
+    tag === 'TEXTAREA' ||
+    tag === 'SELECT' ||
+    t.isContentEditable
+  );
+}
+
+function onGlobalKeydown(e: KeyboardEvent): void {
+  if (e.repeat) return;
+  if (isTypingTarget(e.target)) return;
+
+  // Always-on shortcuts come before the dialog-open guard so the user
+  // can ESC out of an entry detail / session even while the settings
+  // popover or create dialog are closed but other modals would block.
+  if (showCreateDialog.value) return;
+  if (superMode.popoverOpen) return;
+
+  // ---- ESC cascade: detail → session → no-op ----
+  if (e.key === 'Escape') {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (store.selectedEntry) {
+      store.selectEntry(null);
+      e.preventDefault();
+      return;
+    }
+    if (store.activeSessionId) {
+      store.deselectSession();
+      e.preventDefault();
+      return;
+    }
+    return;
+  }
+
+  // ---- Arrow navigation ----
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const direction: -1 | 1 = e.key === 'ArrowDown' ? 1 : -1;
+    if (store.activeSessionId) {
+      store.moveEntryFocus(direction);
+    } else {
+      store.moveSessionFocus(direction);
+    }
+    e.preventDefault();
+    return;
+  }
+
+  // ---- Enter activates the focused item ----
+  if (e.key === 'Enter') {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (store.activeSessionId && store.focusedEntryId) {
+      store.selectEntry(store.focusedEntryId);
+      e.preventDefault();
+      return;
+    }
+    if (!store.activeSessionId && store.focusedSessionId) {
+      store.selectSession(store.focusedSessionId);
+      e.preventDefault();
+      return;
+    }
+    return;
+  }
+
+  // ---- Hidden 12-press 's' super-mode trigger ----
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (store.activeSessionId) return;
+  if (e.key.length !== 1) return;
+  superMode.notifyKey(e.key);
+}
+
+// Defer the WebSocket connection + global key listener + super-mode hydrate
+// until the user is past the login gate (or auth is disabled at deploy
+// time). The session/theme/locale IDB state is loaded earlier so the
+// login screen renders in the saved theme.
+let bootstrapped = false;
+
+async function bootstrapMainApp(): Promise<void> {
+  if (bootstrapped) return;
+  bootstrapped = true;
+
+  // Connect the WS and install the callback handler FIRST. Any
+  // optional async work (super mode hydrate, bind hydrate) runs in
+  // parallel afterwards. We learned the hard way that awaiting hydrate
+  // before ws.connect lets a slow / blocked IndexedDB swallow the
+  // entire callback pipeline — and the operator sees nothing land in
+  // either GUI or terminal.
+  ws.connect();
   ws.onCallback(async (entry) => {
-    await store.addEntry(entry);
+    try {
+      await store.addEntry(entry);
+    } catch (e) {
+      console.warn('[App] addEntry failed:', e);
+    }
+    // Fire-and-forget forwarding for any bound proxies. We must not
+    // let a misbehaving target — or the bind store still warming up
+    // — break ingestion.
+    binds.forward(entry).catch((e) => {
+      console.warn('[App] bind forward failed:', e);
+    });
   });
+
+  // Side-loaded hydrates: they fill in state but shouldn't gate the
+  // WS pipeline. Errors are logged but not propagated.
+  superMode.hydrate().catch((e) => console.warn('[App] superMode hydrate:', e));
+  binds.hydrate().catch((e) => console.warn('[App] binds hydrate:', e));
+
+  window.addEventListener('keydown', onGlobalKeydown);
+}
+
+onMounted(async () => {
+  // Pick up `?share=<token>` first so a share-link visitor lands on the
+  // QR view even before settings finish hydrating. The token format is
+  // checked again on the backend — bogus values just produce 401.
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const tok = params.get('share');
+    if (tok) shareToken.value = tok;
+  } catch {
+    // URLSearchParams is universally available; ignore if not.
+  }
+
+  // Open IndexedDB and pull theme/locale BEFORE rendering anything visible
+  // so the login screen (and the main UI later) come up in the operator's
+  // saved theme/language instead of flashing the defaults.
+  await store.initialize();
+  await settings.hydrate();
+
+  // Seed the keyboard-nav cursor on the first session so the very first
+  // ↑ / ↓ press is well-defined. selectSession() (called by
+  // restoreActiveSession) already overrides this when applicable.
+  if (!store.focusedSessionId && store.sessions.length > 0) {
+    store.focusSession(store.sessions[0].id);
+  }
+
+  // Now decide whether to gate behind login or jump straight in.
+  // We still load auth config when arriving via share link — the
+  // ShareQrView sits on top, but everything underneath is ready as soon
+  // as the visitor closes it.
+  await auth.loadConfig();
+  if (auth.isAuthenticated) {
+    await bootstrapMainApp();
+  }
 });
+
+watch(
+  () => auth.isAuthenticated,
+  (val) => {
+    if (val) bootstrapMainApp();
+  },
+);
 
 onBeforeUnmount(() => {
   ws.disconnect();
+  window.removeEventListener('keydown', onGlobalKeydown);
 });
 
 watch(
@@ -95,23 +279,6 @@ function onSessionCreated(session: Session) {
 }
 
 :root {
-  --bg-primary: #0f1117;
-  --bg-secondary: #161822;
-  --bg-tertiary: #1c1f2e;
-  --bg-hover: #252838;
-  --bg-active: #2a2d42;
-  --border-color: #2a2d3e;
-  --border-light: #363952;
-  --text-primary: #e4e6f0;
-  --text-secondary: #8b8fa7;
-  --text-muted: #5c6078;
-  --accent: #6c5ce7;
-  --accent-hover: #7c6ef7;
-  --accent-glow: rgba(108, 92, 231, 0.2);
-  --success: #00d68f;
-  --warning: #ffaa00;
-  --danger: #ff3d71;
-  --info: #0095ff;
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -131,6 +298,7 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
+  transition: background var(--transition), color var(--transition);
 }
 
 #app {

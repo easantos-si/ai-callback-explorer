@@ -8,40 +8,40 @@
         >
           {{ entry.method }}
         </span>
-        <h3 class="detail-title">Callback Detail</h3>
+        <h3 class="detail-title">{{ t('detail.title') }}</h3>
       </div>
-      <button class="btn-close" @click="$emit('close')">✕</button>
+      <button class="btn-close" :title="t('detail.close')" @click="$emit('close')">✕</button>
     </header>
 
     <div class="detail-body">
       <!-- Meta -->
       <section class="detail-section">
-        <h4 class="section-title">📋 Informações</h4>
+        <h4 class="section-title">📋 {{ t('detail.info') }}</h4>
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label">ID</span>
+            <span class="info-label">{{ t('detail.id') }}</span>
             <code class="info-value">{{ entry.id }}</code>
           </div>
           <div class="info-item">
-            <span class="info-label">Recebido</span>
+            <span class="info-label">{{ t('detail.received') }}</span>
             <span class="info-value">{{
               formatDate(entry.receivedAt)
             }}</span>
           </div>
           <div class="info-item">
-            <span class="info-label">Content-Type</span>
+            <span class="info-label">{{ t('detail.contentType') }}</span>
             <code class="info-value">{{ entry.contentType }}</code>
           </div>
           <div class="info-item">
-            <span class="info-label">IP Origem</span>
+            <span class="info-label">{{ t('detail.sourceIp') }}</span>
             <code class="info-value">{{ entry.ip }}</code>
           </div>
           <div class="info-item full-width">
-            <span class="info-label">Path</span>
+            <span class="info-label">{{ t('detail.path') }}</span>
             <code class="info-value">{{ entry.path }}</code>
           </div>
           <div class="info-item full-width">
-            <span class="info-label">User-Agent</span>
+            <span class="info-label">{{ t('detail.userAgent') }}</span>
             <code class="info-value small">{{ entry.userAgent }}</code>
           </div>
         </div>
@@ -56,7 +56,7 @@
           class="section-header clickable"
           @click="showHeaders = !showHeaders"
         >
-          <h4 class="section-title-inline">🏷️ Headers</h4>
+          <h4 class="section-title-inline">🏷️ {{ t('detail.headers') }}</h4>
           <span class="section-toggle">{{
             showHeaders ? '▲' : '▼'
           }}</span>
@@ -82,7 +82,7 @@
           class="section-header clickable"
           @click="showQuery = !showQuery"
         >
-          <h4 class="section-title-inline">❓ Query Parameters</h4>
+          <h4 class="section-title-inline">❓ {{ t('detail.queryParams') }}</h4>
           <span class="section-toggle">{{
             showQuery ? '▲' : '▼'
           }}</span>
@@ -95,23 +95,23 @@
       <!-- Body -->
       <section class="detail-section">
         <div class="section-header">
-          <h4 class="section-title-inline">📦 Body</h4>
+          <h4 class="section-title-inline">📦 {{ t('detail.body') }}</h4>
           <div class="section-actions">
             <button
               class="btn-action"
-              :title="bodyCopied ? 'Copiado!' : 'Copiar'"
+              :title="bodyCopied ? t('panel.copied') : t('detail.copy')"
               @click="copyBody"
             >
               {{ bodyCopied ? '✓' : '📋' }}
             </button>
             <button class="btn-action" @click="showRawBody = !showRawBody">
-              {{ showRawBody ? 'Tree' : 'Raw' }}
+              {{ showRawBody ? t('detail.tree') : t('detail.raw') }}
             </button>
           </div>
         </div>
         <div class="body-content">
           <div v-if="entry.body === null || entry.body === undefined" class="empty-body">
-            (empty)
+            {{ t('detail.empty') }}
           </div>
           <template v-else>
             <pre v-if="showRawBody" class="code-block raw">{{
@@ -129,9 +129,12 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { CallbackEntry } from '@/types';
 import { formatDate, getMethodColor } from '@/utils/formatters';
 import JsonViewer from './JsonViewer.vue';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   entry: CallbackEntry;

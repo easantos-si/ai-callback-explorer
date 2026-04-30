@@ -1,8 +1,12 @@
+// `callbackUrl` is intentionally NOT stored — IndexedDB is browser-side
+// state the operator can edit, and tampering with it would let a copy
+// of the URL redirect callbacks elsewhere. Use the buildCallbackUrl()
+// helper, which always derives the URL from the auth-store urlBase
+// (mirroring URL_BASE in .env).
 export interface Session {
   id: string;
   label: string;
   createdAt: string;
-  callbackUrl: string;
   entryCount: number;
 }
 

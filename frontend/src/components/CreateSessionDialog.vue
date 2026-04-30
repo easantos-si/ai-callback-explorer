@@ -2,12 +2,12 @@
   <div class="dialog-overlay" @click.self="$emit('close')">
     <div class="dialog">
       <div class="dialog-header">
-        <h2>Nova Sessão</h2>
+        <h2>{{ t('dialog.newSessionTitle') }}</h2>
         <button class="btn-close" @click="$emit('close')">✕</button>
       </div>
       <div class="dialog-body">
         <label class="field-label" for="session-label">
-          Nome da sessão
+          {{ t('dialog.sessionName') }}
         </label>
         <input
           id="session-label"
@@ -15,25 +15,22 @@
           v-model="label"
           type="text"
           class="field-input"
-          placeholder="Ex: Teste transcrição de áudio"
+          :placeholder="t('dialog.sessionPlaceholder')"
           maxlength="200"
           @keyup.enter="create"
         />
-        <p class="field-hint">
-          Uma URL de callback será gerada automaticamente. Use-a no
-          parâmetro <code>callback_url</code> da AI API.
-        </p>
+        <p class="field-hint">{{ t('dialog.sessionHint') }}</p>
       </div>
       <div class="dialog-footer">
         <button class="btn btn-cancel" @click="$emit('close')">
-          Cancelar
+          {{ t('dialog.cancel') }}
         </button>
         <button
           class="btn btn-primary"
           :disabled="creating"
           @click="create"
         >
-          {{ creating ? 'Criando...' : 'Criar Sessão' }}
+          {{ creating ? t('dialog.creating') : t('dialog.create') }}
         </button>
       </div>
     </div>
@@ -42,8 +39,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useSessionStore } from '@/stores/sessions';
+import { intlLocaleFor, type LocaleCode } from '@/i18n';
 import type { Session } from '@/types';
+
+const { t, locale } = useI18n();
 
 const emit = defineEmits<{
   close: [];
@@ -56,7 +57,6 @@ const creating = ref(false);
 const inputRef = ref<HTMLInputElement | null>(null);
 
 onMounted(() => {
-  // Focus input after dialog mounts
   setTimeout(() => inputRef.value?.focus(), 50);
 });
 
@@ -65,17 +65,16 @@ async function create(): Promise<void> {
   creating.value = true;
 
   try {
-    const sessionLabel =
-      label.value.trim() ||
-      `Sessão ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    const intl = intlLocaleFor(locale.value as LocaleCode);
+    const now = new Date();
+    const fallback = `${t('dialog.sessionDefault')} ${now.toLocaleDateString(intl)} ${now.toLocaleTimeString(intl, { hour: '2-digit', minute: '2-digit' })}`;
+    const sessionLabel = label.value.trim() || fallback;
 
     const session = await store.createSession(sessionLabel);
     emit('created', session);
   } catch (e) {
     console.error('Failed to create session:', e);
-    alert(
-      'Erro ao criar sessão. Verifique se o backend está acessível.',
-    );
+    alert(t('dialog.error'));
   } finally {
     creating.value = false;
   }

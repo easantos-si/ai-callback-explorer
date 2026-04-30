@@ -6,11 +6,20 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { CallbackService } from './callback.service';
 import { CallbackGateway } from './callback.gateway';
 import { SessionService } from '../session/session.service';
+import { redactSessionId } from '../common/util/redact';
+import { getClientIp } from '../common/util/client-ip';
 
+// The callback endpoint is invoked by third-party services (potentially
+// many users sharing the same egress IP, e.g. Cloudflare/Vercel). Per-IP
+// throttling at the application layer would penalize legitimate bursts.
+// Per-session caps in SessionService.recordCallback + Cloudflare WAF
+// rules cover this surface instead.
+@SkipThrottle()
 @Controller()
 export class CallbackController {
   private readonly logger = new Logger(CallbackController.name);
@@ -25,9 +34,7 @@ export class CallbackController {
   ) {}
 
   /**
-   * Health endpoint at root level (outside /api prefix).
-   * Since globalPrefix is /api, we define this at /health
-   * which becomes /api/health. Nginx proxies /health → /api/health.
+   * Health endpoint at /api/health. Nginx/Cloudflare proxy /health → /api/health.
    */
   @All('health')
   health(): Record<string, unknown> {
@@ -38,94 +45,69 @@ export class CallbackController {
     };
   }
 
-  /**
-   * Catch-all callback handler.
-   * Matches: /api/callback/:sessionId and /api/callback/:sessionId/any/sub/path
-   * Uses @All to accept any HTTP method (GET, POST, PUT, etc.)
-   */
   @All('callback/:sessionId')
-  handleCallback(
-    @Req() req: Request,
-    @Res() res: Response,
-  ): void {
+  handleCallback(@Req() req: Request, @Res() res: Response): void {
     this.processCallback(req, res);
   }
 
   @All('callback/:sessionId/*')
-  handleCallbackWildcard(
-    @Req() req: Request,
-    @Res() res: Response,
-  ): void {
+  handleCallbackWildcard(@Req() req: Request, @Res() res: Response): void {
     this.processCallback(req, res);
   }
 
+  /**
+   * Unified callback handler. Always returns the same body so the response
+   * cannot be used as an oracle for hash existence (ID-008). Real ingestion
+   * runs after the response, on `setImmediate`.
+   */
   private processCallback(req: Request, res: Response): void {
-    // Extract sessionId from path: /api/callback/<sessionId>[/...]
     const pathParts = req.path.split('/');
-    // Path is like /api/callback/<sessionId>/... or /callback/<sessionId>/...
     const callbackIndex = pathParts.indexOf('callback');
-    const sessionId = callbackIndex >= 0 ? pathParts[callbackIndex + 1] : undefined;
+    const sessionId =
+      callbackIndex >= 0 ? pathParts[callbackIndex + 1] : undefined;
 
-    if (
-      !sessionId ||
-      !CallbackController.SESSION_ID_REGEX.test(sessionId)
-    ) {
-      this.logger.warn(`Callback with invalid session ID format: ${sessionId}`);
-      res.status(HttpStatus.OK).json({
-        received: true,
-        warning: 'Invalid session ID format',
-      });
-      return;
-    }
+    const known =
+      !!sessionId &&
+      CallbackController.SESSION_ID_REGEX.test(sessionId) &&
+      this.sessionService.validateSession(sessionId);
 
-    if (!this.sessionService.validateSession(sessionId)) {
-      this.logger.warn(`Callback for unknown/expired session: ${sessionId}`);
-      // Still return 200 so the AI API doesn't retry
-      res.status(HttpStatus.OK).json({
-        received: true,
-        warning: 'Session not found or expired',
-      });
-      return;
-    }
+    // Constant response shape — no leak of existence.
+    res.status(HttpStatus.OK).json({ received: true });
 
-    try {
-      const ip =
-        req.ip ||
-        (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-        req.socket?.remoteAddress ||
-        'unknown';
+    if (!known || !sessionId) return;
 
-      const entry = this.callbackService.buildCallbackEntry(
-        sessionId,
-        req.method,
-        req.originalUrl,
-        req.headers as Record<string, string | string[] | undefined>,
-        req.query as Record<string, unknown>,
-        req.body,
-        ip,
-      );
+    const ingest = (): void => {
+      try {
+        const ip = getClientIp(req);
+        const size = this.callbackService.estimateSize(req.body);
 
-      // Emit via WebSocket to connected clients
-      this.callbackGateway.emitToSession(sessionId, entry);
+        if (!this.sessionService.recordCallback(sessionId, size)) {
+          this.logger.warn(
+            `Quota exceeded — dropping callback for ${redactSessionId(sessionId)}`,
+          );
+          return;
+        }
 
-      // Touch session to keep it alive
-      this.sessionService.touchSession(sessionId);
+        const entry = this.callbackService.buildCallbackEntry(
+          sessionId,
+          req.method,
+          req.originalUrl,
+          req.headers as Record<string, string | string[] | undefined>,
+          req.query as Record<string, unknown>,
+          req.body,
+          ip,
+        );
 
-      res.status(HttpStatus.OK).json({
-        received: true,
-        id: entry.id,
-        timestamp: entry.receivedAt,
-      });
-    } catch (error) {
-      this.logger.error(
-        `Error processing callback for session ${sessionId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      res.status(HttpStatus.OK).json({
-        received: true,
-        warning: 'Error processing callback data',
-      });
-    }
+        this.callbackGateway.emitToSession(sessionId, entry);
+      } catch (error) {
+        this.logger.error(
+          `Error processing callback for ${redactSessionId(sessionId)}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    };
+
+    setImmediate(ingest);
   }
 }

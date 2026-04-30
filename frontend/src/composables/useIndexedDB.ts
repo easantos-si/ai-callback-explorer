@@ -2,7 +2,7 @@ import { ref } from 'vue';
 import type { Session, CallbackEntry } from '@/types';
 
 const DB_NAME = 'ai-callback-explorer';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbInstance: IDBDatabase | null = null;
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -30,6 +30,12 @@ function openDB(): Promise<IDBDatabase> {
         const entryStore = db.createObjectStore('entries', { keyPath: 'id' });
         entryStore.createIndex('sessionId', 'sessionId', { unique: false });
         entryStore.createIndex('receivedAt', 'receivedAt', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains('settings')) {
+        // Plain key/value store: out-of-line keys, value is whatever the
+        // caller stores (string, boolean, object). One row per setting.
+        db.createObjectStore('settings');
       }
     };
 
@@ -207,6 +213,27 @@ export function useIndexedDB() {
     });
   }
 
+  async function getSetting<T>(key: string): Promise<T | null> {
+    const value = await wrapTransaction<unknown>(
+      'settings',
+      'readonly',
+      (tx) => tx.objectStore('settings').get(key),
+    );
+    return (value as T | undefined) ?? null;
+  }
+
+  async function setSetting(key: string, value: unknown): Promise<void> {
+    await wrapTransaction('settings', 'readwrite', (tx) =>
+      tx.objectStore('settings').put(value, key),
+    );
+  }
+
+  async function deleteSetting(key: string): Promise<void> {
+    await wrapTransaction('settings', 'readwrite', (tx) =>
+      tx.objectStore('settings').delete(key),
+    );
+  }
+
   return {
     isReady,
     init,
@@ -219,5 +246,8 @@ export function useIndexedDB() {
     getEntry,
     deleteEntry,
     clearAllData,
+    getSetting,
+    setSetting,
+    deleteSetting,
   };
 }

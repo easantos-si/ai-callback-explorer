@@ -5,17 +5,20 @@
         <h2 class="panel-title">{{ store.activeSession?.label }}</h2>
         <div class="header-meta">
           <span class="meta-item">
-            📡 {{ store.entries.length }} callback{{
-              store.entries.length !== 1 ? 's' : ''
+            📡 {{ store.entries.length }}
+            {{
+              store.entries.length === 1
+                ? t('panel.callback')
+                : t('panel.callbacks')
             }}
           </span>
           <span class="meta-divider">·</span>
           <span
             class="meta-item callback-url"
-            title="Clique para copiar"
+            :title="t('panel.copyUrl')"
             @click="copyCallbackUrl"
           >
-            🔗 {{ copied ? 'Copiado!' : 'Copiar URL' }}
+            🔗 {{ copied ? t('panel.copied') : t('panel.copyUrl') }}
           </span>
         </div>
       </div>
@@ -24,11 +27,11 @@
     <div v-if="store.entries.length === 0" class="empty-entries">
       <EmptyState
         icon="⏳"
-        title="Aguardando callbacks..."
-        :subtitle="`Use a URL abaixo como callback_url na AI API`"
+        :title="t('panel.waitingTitle')"
+        :subtitle="t('panel.waitingSubtitle')"
       />
       <div class="url-display" @click="copyCallbackUrl">
-        <code>{{ store.activeSession?.callbackUrl }}</code>
+        <code>{{ activeCallbackUrl }}</code>
         <span class="copy-icon">{{ copied ? '✓' : '📋' }}</span>
       </div>
     </div>
@@ -37,8 +40,10 @@
       <CallbackEntry
         v-for="entry in store.entries"
         :key="entry.id"
+        :ref="(el) => registerEntryEl(entry.id, el)"
         :entry="entry"
         :selected="store.selectedEntryId === entry.id"
+        :focused="store.focusedEntryId === entry.id"
         @click="store.selectEntry(entry.id)"
         @delete="store.deleteEntryById(entry.id)"
       />
@@ -47,17 +52,51 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useSessionStore } from '@/stores/sessions';
+import { buildCallbackUrl } from '@/utils/callback-url';
 import CallbackEntry from './CallbackEntry.vue';
 import EmptyState from './EmptyState.vue';
 
+const { t } = useI18n();
 const store = useSessionStore();
 const copied = ref(false);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Track entry rows so the focused one stays in view as the user
+// arrows past the visible window. CallbackEntry forwards its root
+// element via Vue's automatic template ref.
+const entryEls = new Map<string, HTMLElement>();
+function registerEntryEl(
+  id: string,
+  inst: unknown,
+): void {
+  // Component refs can be either the component instance or null.
+  // The root <div> hangs off `$el` for Options-API style refs.
+  const el =
+    inst && typeof inst === 'object' && '$el' in inst
+      ? ((inst as { $el: HTMLElement }).$el)
+      : (inst as HTMLElement | null);
+  if (el) entryEls.set(id, el);
+  else entryEls.delete(id);
+}
+
+watch(
+  () => store.focusedEntryId,
+  async (id) => {
+    if (!id) return;
+    await nextTick();
+    entryEls.get(id)?.scrollIntoView({ block: 'nearest' });
+  },
+);
+
+const activeCallbackUrl = computed(() =>
+  store.activeSession ? buildCallbackUrl(store.activeSession.id) : '',
+);
+
 async function copyCallbackUrl(): Promise<void> {
-  const url = store.activeSession?.callbackUrl;
+  const url = activeCallbackUrl.value;
   if (!url) return;
 
   try {

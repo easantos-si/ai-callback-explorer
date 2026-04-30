@@ -1,8 +1,12 @@
 import { ref } from 'vue';
 import { io, Socket } from 'socket.io-client';
+import { useAuthStore } from '@/stores/auth';
 import type { CallbackEntry } from '@/types';
 
-// Singleton socket instance
+const debug = (...args: unknown[]): void => {
+  if (import.meta.env.DEV) console.log(...args);
+};
+
 let socket: Socket | null = null;
 let callbackHandler: ((entry: CallbackEntry) => void) | null = null;
 
@@ -13,7 +17,6 @@ export function useWebSocket() {
   function connect(): void {
     if (socket?.connected) return;
 
-    // Disconnect existing socket if any
     if (socket) {
       socket.removeAllListeners();
       socket.disconnect();
@@ -21,6 +24,7 @@ export function useWebSocket() {
     }
 
     const wsUrl = window.location.origin;
+    const auth = useAuthStore();
 
     socket = io(wsUrl, {
       path: '/socket.io',
@@ -31,13 +35,15 @@ export function useWebSocket() {
       reconnectionDelayMax: 10000,
       timeout: 20000,
       autoConnect: true,
+      // Reads on every (re)connection attempt, so a freshly refreshed
+      // token is picked up automatically. Empty when auth is disabled.
+      auth: (cb) => cb({ token: auth.token }),
     });
 
     socket.on('connect', () => {
       connected.value = true;
-      console.log('[WS] Connected:', socket?.id);
+      debug('[WS] Connected:', socket?.id);
 
-      // Re-join session after reconnection
       if (currentSessionId.value) {
         socket?.emit('join-session', {
           sessionId: currentSessionId.value,
@@ -47,32 +53,31 @@ export function useWebSocket() {
 
     socket.on('disconnect', (reason: string) => {
       connected.value = false;
-      console.log('[WS] Disconnected:', reason);
+      debug('[WS] Disconnected:', reason);
     });
 
     socket.on('connect_error', (error: Error) => {
       connected.value = false;
-      console.warn('[WS] Connection error:', error.message);
+      if (import.meta.env.DEV) console.warn('[WS] Connection error:', error.message);
     });
 
-    socket.on('joined-session', (data: { sessionId: string }) => {
-      console.log('[WS] Joined session:', data.sessionId);
+    socket.on('joined-session', () => {
+      debug('[WS] Joined session');
     });
 
     socket.on('callback-received', (entry: CallbackEntry) => {
-      console.log('[WS] Callback received:', entry.id);
+      debug('[WS] Callback received:', entry.id);
       if (callbackHandler) {
         callbackHandler(entry);
       }
     });
 
     socket.on('error', (data: { message: string }) => {
-      console.error('[WS] Server error:', data.message);
+      if (import.meta.env.DEV) console.error('[WS] Server error:', data.message);
     });
   }
 
   function joinSession(sessionId: string): void {
-    // Leave previous
     if (currentSessionId.value && currentSessionId.value !== sessionId) {
       socket?.emit('leave-session', {
         sessionId: currentSessionId.value,
@@ -84,7 +89,6 @@ export function useWebSocket() {
     if (socket?.connected) {
       socket.emit('join-session', { sessionId });
     }
-    // If not connected yet, the 'connect' handler will auto-join
   }
 
   function leaveSession(): void {

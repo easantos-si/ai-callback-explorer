@@ -1,24 +1,26 @@
 services:
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: ai-callback-backend
     restart: unless-stopped
-    ports:
-      - "3900:3900"
-    environment:
-      - NODE_ENV=production
-      - PORT=3900
-      - CORS_ORIGIN=*
-      - MAX_PAYLOAD_SIZE=50mb
-      - RATE_LIMIT_TTL=60
-      - RATE_LIMIT_MAX=100
-      - SESSION_TTL_HOURS=72
-      - LOG_LEVEL=info
-      - TRUST_PROXY=true
+    # Backend is internal-only. The frontend nginx (and cloudflared, when
+    # used) reach it through the docker network at backend:3900. No host
+    # port publication — direct origin access bypassing the proxy is
+    # impossible.
+    expose:
+      - "3900"
+    # All runtime configuration is baked into the image from the project
+    # root .env (see backend/Dockerfile + node --env-file=.env). Changes to
+    # .env require `docker-compose build` to take effect.
     networks:
       - ai-callback-network
+    # SQLite store for sessions. Lives outside the image so rebuilds
+    # don't wipe the session table; expired rows are purged on every
+    # startup by SessionService.onModuleInit.
+    volumes:
+      - ai-callback-data:/app/data
     healthcheck:
       test: ["CMD", "node", "-e", "try{require('http').get('http://localhost:3900/api/health',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))}catch(e){process.exit(1)}"]
       interval: 30s
@@ -33,15 +35,22 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
+      # docker-compose interpolates ${VAR} from the project root .env
+      # automatically. The Vite build at frontend/Dockerfile reads these
+      # via ARG and bakes them into the static bundle.
       args:
-        - VITE_API_BASE_URL=
-        - VITE_WS_PATH=/socket.io
+        - VITE_API_BASE_URL=${VITE_API_BASE_URL:-}
+        - VITE_WS_PATH=${VITE_WS_PATH:-/socket.io}
     container_name: ai-callback-frontend
     restart: unless-stopped
+    # Frontend listens only on the loopback of the host. Cloudflare Tunnel
+    # (cloudflared) and any external nginx HTTPS proxy connect via
+    # 127.0.0.1:3901. There is no public exposure — direct ingress from
+    # outside the host is blocked by the OS, not by the firewall config.
     ports:
-      - "3901:80"
+      - "127.0.0.1:3901:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -56,3 +65,10 @@ services:
 networks:
   ai-callback-network:
     driver: bridge
+
+volumes:
+  # Named volume for the SQLite session store. Survives `docker-compose
+  # down` / image rebuilds. Wipe with `docker volume rm
+  # ai-callback-explorer_ai-callback-data` if you need a clean slate.
+  ai-callback-data:
+    driver: local

@@ -166,7 +166,7 @@ function valueClass(value: unknown): string {
 }
 
 .json-key {
-  color: #c792ea;
+  color: var(--json-key);
   cursor: pointer;
   user-select: none;
 }
@@ -200,20 +200,20 @@ function valueClass(value: unknown): string {
 }
 
 .json-string {
-  color: #c3e88d;
+  color: var(--json-string);
   word-break: break-all;
 }
 
 .json-number {
-  color: #f78c6c;
+  color: var(--json-number);
 }
 
 .json-boolean {
-  color: #ff5370;
+  color: var(--json-boolean);
 }
 
 .json-null {
-  color: #546e7a;
+  color: var(--json-null);
   font-style: italic;
 }
 

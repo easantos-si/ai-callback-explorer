@@ -1,0 +1,42 @@
+# Build context root for both backend/Dockerfile and frontend/Dockerfile.
+# Keep `.env` IN the context — it is intentionally COPY'd into the backend
+# image so changes require a rebuild (see backend/Dockerfile).
+
+# Build artifacts
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/*.tsbuildinfo
+
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+**/*.swp
+**/*.swo
+
+# Logs
+**/*.log
+**/npm-debug.log*
+
+# Repo-only assets that shouldn't end up in any image
+RELATORIO-AUDITORIA-*.md
+prompt-auditoria-*.md
+README.md
+LICENSE
+.env.example
+
+# Sensitive
+.npmrc
+**/.npmrc
+
+# Docker meta
+.docker
+.dockerignore

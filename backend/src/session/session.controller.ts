@@ -7,32 +7,24 @@ import {
   Body,
   HttpCode,
   HttpStatus,
-  BadRequestException,
   NotFoundException,
+  UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { SessionService } from './session.service';
+import { CreateSessionDto } from './dto/create-session.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('sessions')
+@UseGuards(JwtAuthGuard)
 export class SessionController {
   constructor(private readonly sessionService: SessionService) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() body: Record<string, unknown>): Record<string, unknown> {
-    const label = body?.label;
-
-    if (label !== undefined && label !== null) {
-      if (typeof label !== 'string' || label.length > 200) {
-        throw new BadRequestException(
-          'Label must be a string with max 200 characters',
-        );
-      }
-    }
-
-    const session = this.sessionService.createSession(
-      typeof label === 'string' ? label : undefined,
-    );
-
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  create(@Body() dto: CreateSessionDto): Record<string, unknown> {
+    const session = this.sessionService.createSession(dto.label);
     return {
       success: true,
       session,
