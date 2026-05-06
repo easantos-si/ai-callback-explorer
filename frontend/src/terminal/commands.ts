@@ -376,9 +376,12 @@ const grep: Command = {
     const pattern = args.positional[0];
     if (!pattern) { stdio.errln('grep: missing pattern'); return 2; }
     const flags = args.flags.i ? 'gi' : 'g';
+    const useRegex = !!args.flags.E;
     let re: RegExp;
-    try { re = new RegExp(pattern, flags); }
-    catch (e) { stdio.errln(`grep: ${(e as Error).message}`); return 2; }
+    try {
+      const source = useRegex ? pattern : pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      re = new RegExp(source, flags);
+    } catch (e) { stdio.errln(`grep: ${(e as Error).message}`); return 2; }
     const inv = !!args.flags.v;
     let matched = 0;
     for (const line of lines(stdio.read())) {

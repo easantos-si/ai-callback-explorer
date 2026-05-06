@@ -696,6 +696,10 @@ Layer 6 — Transport
   • HSTS enforced, max-age=2y, includeSubDomains, preload.
 ```
 
+> The full audit (4 high, 5 medium, 4 low findings — all remediated)
+> lives in [AUDITORIA_SEGURANCA.md](AUDITORIA_SEGURANCA.md). Use it as
+> the baseline for validating future changes.
+
 ---
 
 ## 🛠️ Local development
@@ -742,6 +746,7 @@ ai-callback-explorer/
 ├── .env / .env.example                      # env_file: into backend at runtime
 ├── Dockerfile.build                         # build.sh helper image
 ├── build.sh                                 # ./build.sh {install|build|lockfile|shell|clean}
+├── AUDITORIA_SEGURANCA.md                   # 2026-04 security audit + remediations
 │
 ├── backend/                                 # NestJS application
 │   ├── Dockerfile                           # Adds python3/make/g++ for

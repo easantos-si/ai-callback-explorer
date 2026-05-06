@@ -27,7 +27,7 @@ export default {
     copyUrl: 'URL kopieren',
     copied: 'Kopiert!',
     waitingTitle: 'Warte auf Callbacks...',
-    waitingSubtitle: 'Verwenden Sie die untenstehende URL als callback_url in der KI-API',
+    waitingSubtitle: 'Verwenden Sie die untenstehende URL als Callback in Ihrer App',
     emptyTitle: 'AI Callback Explorer',
     emptySubtitle: 'Erstellen Sie eine Sitzung, um API-Callbacks zu empfangen',
   },

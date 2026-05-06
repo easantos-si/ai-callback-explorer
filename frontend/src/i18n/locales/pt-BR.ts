@@ -31,7 +31,7 @@ export default {
     copyUrl: 'Copiar URL',
     copied: 'Copiado!',
     waitingTitle: 'Aguardando callbacks...',
-    waitingSubtitle: 'Use a URL abaixo como callback_url na AI API',
+    waitingSubtitle: 'Use a URL abaixo como callback em seu app',
     emptyTitle: 'AI Callback Explorer',
     emptySubtitle: 'Crie uma sessão para começar a receber callbacks da API',
   },
